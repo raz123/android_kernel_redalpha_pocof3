@@ -325,7 +325,6 @@ enum subset_cluster_type {
 #define HARDWARE_PLATFORM_CMI  1
 #define HARDWARE_PLATFORM_UMI  2
 #define HARDWARE_PLATFORM_LMI  3
-#define HARDWARE_PLATFORM_SKULD  6
 #define HARDWARE_PLATFORM_CAS  7
 #define HARDWARE_PLATFORM_APOLLO  8
 #define HARDWARE_PLATFORM_ALIOTH  9
@@ -340,7 +339,6 @@ enum subset_cluster_type {
 #define HW_MAJOR_VERSION_B  9
 #define HW_MINOR_VERSION_B  1
 
-
 #define HW_MAJOR_VERSION_SHIFT 16
 #define HW_MAJOR_VERSION_MASK  0xFFFF0000
 #define HW_MINOR_VERSION_SHIFT 0
@@ -351,10 +349,10 @@ enum subset_cluster_type {
 #define HW_BUILD_VERSION_SHIFT 16
 
 typedef enum {
-  CountryCN = 0,
-  CountryGlobal = 1,
-  CountryIndia = 2,
-  INVALID,
+	CountryCN = 0,
+	CountryGlobal = 1,
+	CountryIndia = 2,
+	INVALID,
 } CountryType;
 
 uint32_t get_hw_version_platform(void);
