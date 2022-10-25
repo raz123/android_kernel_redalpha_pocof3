@@ -19,7 +19,7 @@ config ION_SYSTEM_HEAP
 	  is backed by pages from the buddy allocator. If in doubt, say Y.
 
 config ION_CAMERA_HEAP
-	bool "Ion camera heap"
+	bool "Ion camrea heap"
 	depends on ION
 	help
 	  Choose this option to enable the Ion camera heap.
