@@ -58,8 +58,7 @@
 /// TRUE - command successful @n
 /// FALSE - command failed
 ///
-int sha3_256_hmac(unsigned char *key, int key_len, unsigned char *message,
-		  int msg_len, unsigned char *mac)
+int sha3_256_hmac(unsigned char *key, int key_len, unsigned char *message, int msg_len, unsigned char *mac)
 {
 	int i;
 	unsigned char thash[256];
@@ -77,7 +76,7 @@ int sha3_256_hmac(unsigned char *key, int key_len, unsigned char *message,
 
 	//  Check to see if key is larger then blocksize
 	if (key_len > blocksize)
-		return 0; // Not supported
+		return 0;  // Not supported
 
 	// check for blocks too big
 	if (msg_len > 512)
