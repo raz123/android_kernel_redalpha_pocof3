@@ -2445,8 +2445,8 @@ static void msm_geni_serial_shutdown(struct uart_port *uport)
 		msm_geni_serial_stop_tx(uport);
 	}
 
-#if !defined(CONFIG_MACH_XIAOMI_ELISH) && !defined(CONFIG_MACH_XIAOMI_ENUMA) && \
-	!defined(CONFIG_MACH_XIAOMI_DAGU) && !defined(CONFIG_MACH_XIAOMI_PIPA)
+#if !defined(CONFIG_BOARD_ELISH) && !defined(CONFIG_BOARD_ENUMA) && \
+	!defined(CONFIG_BOARD_DAGU) && !defined(CONFIG_BOARD_PIPA)
 	if (likely(!uart_console(uport)))
 		disable_irq(uport->irq);
 #endif
@@ -2590,8 +2590,8 @@ static int msm_geni_serial_startup(struct uart_port *uport)
 		}
 	}
 
-#if !defined(CONFIG_MACH_XIAOMI_ELISH) && !defined(CONFIG_MACH_XIAOMI_ENUMA) && \
-	!defined(CONFIG_MACH_XIAOMI_DAGU) && !defined(CONFIG_MACH_XIAOMI_PIPA)
+#if !defined(CONFIG_BOARD_ELISH) && !defined(CONFIG_BOARD_ENUMA) && \
+	!defined(CONFIG_BOARD_DAGU) && !defined(CONFIG_BOARD_PIPA)
 	if (likely(!uart_console(uport)))
 		enable_irq(uport->irq);
 #endif
@@ -3667,8 +3667,8 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 	ret = devm_request_irq(uport->dev, uport->irq, msm_geni_serial_isr,
 				IRQF_TRIGGER_HIGH, dev_port->name, uport);
 
-#if !defined(CONFIG_MACH_XIAOMI_ELISH) && !defined(CONFIG_MACH_XIAOMI_ENUMA) && \
-	!defined(CONFIG_MACH_XIAOMI_DAGU) && !defined(CONFIG_MACH_XIAOMI_PIPA)
+#if !defined(CONFIG_BOARD_ELISH) && !defined(CONFIG_BOARD_ENUMA) && \
+	!defined(CONFIG_BOARD_DAGU) && !defined(CONFIG_BOARD_PIPA)
 	if (likely(!uart_console(uport))) {
 		/*
 		 * irq should disable untill msm_geni_serial_port_setup
