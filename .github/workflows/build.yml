@@ -53,6 +53,26 @@ jobs:
           echo "Clang version:"
           "${TOOLCHAIN_DIR}/bin/clang" --version | head -1
 
+      - name: Apply Local Patches
+        run: |
+          echo "Applying patches from patches/..."
+          for dir in patches/stability patches/ultrasound patches/performance patches/networking; do
+            if [ -d "$dir" ]; then
+              for patch in "$dir"/*.patch; do
+                [ -f "$patch" ] || continue
+                echo "Applying: $patch"
+                git apply --check "$patch" 2>/dev/null && git apply "$patch" || echo "WARN: patch failed or already applied: $patch"
+              done
+            fi
+          done
+
+      - name: Validate Defconfig
+        run: |
+          if [ -f scripts/validate_build_config.sh ]; then
+            chmod +x scripts/validate_build_config.sh
+            bash scripts/validate_build_config.sh arch/arm64/configs/alioth_defconfig
+          fi
+
       - name: Build Kernel
         run: |
           export PATH="${{ steps.toolchain.outputs.TOOLCHAIN_DIR }}/bin:$PATH"
@@ -81,6 +101,16 @@ jobs:
           fi
           echo "Kernel image built successfully:"
           ls -lh arch/arm64/boot/Image.gz-dtb
+
+      - name: Verify KSU Symbols
+        run: |
+          if [ -f scripts/validate_symbols.sh ]; then
+            chmod +x scripts/validate_symbols.sh
+            bash scripts/validate_symbols.sh arch/arm64/boot/Image.gz-dtb
+          else
+            echo "No symbol validation script, checking strings..."
+            strings arch/arm64/boot/Image.gz-dtb | grep -c ksu || true
+          fi
 
       - name: Package with AnyKernel3
         run: |
