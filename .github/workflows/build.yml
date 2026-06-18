@@ -1,10 +1,6 @@
 name: Build Kernel (alioth)
 
 on:
-  push:
-    branches: [android16-aptusitu]
-  pull_request:
-    branches: [android16-aptusitu]
   workflow_dispatch:
 
 defaults:
