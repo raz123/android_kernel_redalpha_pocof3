@@ -2,9 +2,9 @@ name: Build Kernel (alioth)
 
 on:
   push:
-    branches: [main]
+    branches: [android16-aptusitu]
   pull_request:
-    branches: [main]
+    branches: [android16-aptusitu]
 
 concurrency:
   group: build-${{ github.ref }}
