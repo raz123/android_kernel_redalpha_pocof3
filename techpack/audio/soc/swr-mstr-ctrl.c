@@ -105,7 +105,7 @@ static void swrm_unlock_sleep(struct swr_mstr_ctrl *swrm);
 static u32 swr_master_read(struct swr_mstr_ctrl *swrm, unsigned int reg_addr);
 static void swr_master_write(struct swr_mstr_ctrl *swrm, u16 reg_addr, u32 val);
 static int swrm_runtime_resume(struct device *dev);
-static void swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr);
+static int swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr);
 
 static u8 swrm_get_clk_div(int mclk_freq, int bus_clk_freq)
 {
@@ -626,27 +626,29 @@ static int swr_master_bulk_write(struct swr_mstr_ctrl *swrm, u32 *reg_addr,
 				u32 *val, unsigned int length)
 {
 	int i = 0;
+	int ret = 0;
 
 	if (swrm->bulk_write)
 		swrm->bulk_write(swrm->handle, reg_addr, val, length);
 	else {
-		mutex_lock(&swrm->iolock);
 		for (i = 0; i < length; i++) {
-		/* wait for FIFO WR command to complete to avoid overflow */
-		/*
-		 * Reduce sleep from 100us to 50us to meet KPIs
-		 * This still meets the hardware spec
-		 */
+			/*
+			 * Reduce sleep from 100us to 50us to meet KPIs
+			 * This still meets the hardware spec
+			 */
 			usleep_range(50, 55);
 			if (reg_addr[i] == SWRM_CMD_FIFO_WR_CMD)
-				swrm_wait_for_fifo_avail(swrm,
-							 SWRM_WR_CHECK_AVAIL);
+				if (swrm_wait_for_fifo_avail(swrm,
+							 SWRM_WR_CHECK_AVAIL)) {
+					ret = -ETIMEDOUT;
+					break;
+				}
 			swr_master_write(swrm, reg_addr[i], val[i]);
 		}
 		usleep_range(100, 110);
 		mutex_unlock(&swrm->iolock);
 	}
-	return 0;
+	return ret;
 }
 
 static bool swrm_check_link_status(struct swr_mstr_ctrl *swrm, bool active)
@@ -764,7 +766,7 @@ static u32 swrm_get_packed_reg_val(u8 *cmd_id, u8 cmd_data,
 	return val;
 }
 
-static void swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr)
+static int swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr)
 {
 	u32 fifo_outstanding_cmd;
 	u8 fifo_retry_count = SWR_OVERFLOW_RETRY_COUNT;
@@ -787,8 +789,11 @@ static void swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr)
 			}
 		}
 		if (fifo_outstanding_cmd == 0)
+		{
 			dev_err_ratelimited(swrm->dev,
 				"%s err read underflow\n", __func__);
+			return -ETIMEDOUT;
+		}
 	} else {
 		/* Check for fifo overflow during write */
 		/* Check no of outstanding commands in fifo before write */
@@ -807,9 +812,14 @@ static void swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr)
 			}
 		}
 		if (fifo_outstanding_cmd == swrm->wr_fifo_depth)
+		{
 			dev_err_ratelimited(swrm->dev,
 				"%s err write overflow\n", __func__);
+			swr_master_write(swrm, SWRM_CMD_FIFO_CMD, 0x1);
+			return -ETIMEDOUT;
+		}
 	}
+	return 0;
 }
 
 static int swrm_cmd_fifo_rd_cmd(struct swr_mstr_ctrl *swrm, int *cmd_data,
@@ -834,7 +844,10 @@ static int swrm_cmd_fifo_rd_cmd(struct swr_mstr_ctrl *swrm, int *cmd_data,
 		 * Check for outstanding cmd wrt. write fifo depth to avoid
 		 * overflow as read will also increase write fifo cnt.
 		 */
-		swrm_wait_for_fifo_avail(swrm, SWRM_WR_CHECK_AVAIL);
+		if (swrm_wait_for_fifo_avail(swrm, SWRM_WR_CHECK_AVAIL)) {
+			mutex_unlock(&swrm->iolock);
+			return -ETIMEDOUT;
+		}
 		/* wait for FIFO RD to complete to avoid overflow */
 		usleep_range(100, 105);
 		swr_master_write(swrm, SWRM_CMD_FIFO_RD_CMD, val);
@@ -842,7 +855,10 @@ static int swrm_cmd_fifo_rd_cmd(struct swr_mstr_ctrl *swrm, int *cmd_data,
 		usleep_range(250, 255);
 	}
 	/* Check if slave responds properly after FIFO RD is complete */
-	swrm_wait_for_fifo_avail(swrm, SWRM_RD_CHECK_AVAIL);
+	if (swrm_wait_for_fifo_avail(swrm, SWRM_RD_CHECK_AVAIL)) {
+		mutex_unlock(&swrm->iolock);
+		return -ETIMEDOUT;
+	}
 retry_read:
 	*cmd_data = swr_master_read(swrm, SWRM_CMD_FIFO_RD_FIFO_ADDR);
 	dev_dbg(swrm->dev, "%s: reg: 0x%x, cmd_id: 0x%x, rcmd_id: 0x%x, \
@@ -897,7 +913,11 @@ static int swrm_cmd_fifo_wr_cmd(struct swr_mstr_ctrl *swrm, u8 cmd_data,
 	 * Check for outstanding cmd wrt. write fifo depth to avoid
 	 * overflow.
 	 */
-	swrm_wait_for_fifo_avail(swrm, SWRM_WR_CHECK_AVAIL);
+	ret = swrm_wait_for_fifo_avail(swrm, SWRM_WR_CHECK_AVAIL);
+	if (ret) {
+		mutex_unlock(&swrm->iolock);
+		return ret;
+	}
 	swr_master_write(swrm, SWRM_CMD_FIFO_WR_CMD, val);
 	/*
 	 * wait for FIFO WR command to complete to avoid overflow
@@ -1917,13 +1937,19 @@ handle_irq:
 					"SWR bus clsh detected\n");
 			break;
 		case SWRM_INTERRUPT_STATUS_RD_FIFO_OVERFLOW:
-			dev_dbg(swrm->dev, "SWR read FIFO overflow\n");
+			dev_err_ratelimited(swrm->dev, "SWR read FIFO overflow\n");
 			break;
 		case SWRM_INTERRUPT_STATUS_RD_FIFO_UNDERFLOW:
 			dev_dbg(swrm->dev, "SWR read FIFO underflow\n");
 			break;
 		case SWRM_INTERRUPT_STATUS_WR_CMD_FIFO_OVERFLOW:
-			dev_dbg(swrm->dev, "SWR write FIFO overflow\n");
+			value = swr_master_read(swrm, SWRM_CMD_FIFO_STATUS);
+			dev_err_ratelimited(swrm->dev,
+			"%s: SWR write FIFO overflow fifo status 0x%x\n",
+					    __func__, value);
+			swr_master_write(swrm, SWRM_CMD_FIFO_CMD, 0x1);
+			swr_master_write(swrm, SWRM_COMP_SW_RESET, 0x01);
+			swrm_master_init(swrm);
 			break;
 		case SWRM_INTERRUPT_STATUS_CMD_ERROR:
 			value = swr_master_read(swrm, SWRM_CMD_FIFO_STATUS);

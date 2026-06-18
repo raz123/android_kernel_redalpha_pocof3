@@ -181,6 +181,12 @@ __poll_t iio_buffer_poll(struct file *filp,
 	poll_wait(filp, &rb->pollq, wait);
 	if (iio_buffer_ready(indio_dev, rb, rb->watermark, 0))
 		return EPOLLIN | EPOLLRDNORM;
+
+	if (test_bit(IIO_DATA_READY_BIT, &indio_dev->flags)) {
+		clear_bit(IIO_DATA_READY_BIT, &indio_dev->flags);
+		return EPOLLIN | EPOLLRDNORM;
+	}
+
 	return 0;
 }
 

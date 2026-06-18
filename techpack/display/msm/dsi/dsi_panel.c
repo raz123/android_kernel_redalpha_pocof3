@@ -556,7 +556,7 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 	if (panel->reset_config.reset_powerdown_delay) {
 		usleep_range(panel->reset_config.reset_powerdown_delay * 1000,
 			(panel->reset_config.reset_powerdown_delay * 1000) + 100);
-		DSI_WARN("reset_powerdown_delay = %d\n", panel->reset_config.reset_powerdown_delay);
+		DSI_INFO("reset_powerdown_delay = %d\n", panel->reset_config.reset_powerdown_delay);
 	}
 
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))

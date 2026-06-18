@@ -404,7 +404,19 @@ int32_t mius_process_apr_payload(uint32_t *payload)
 			break;
 		case MIUS_ULTRASOUND_PARAM_ID_ENGINE_DATA:
 #endif
-			printk(KERN_DEBUG "[MIUS] mi us payload[3] = %d", (int)payload[3]);
+				if (payload_size > 0 && payload_size <= MIUS_MSG_BUF_SIZE) {
+					ret = mius_data_push(MIUS_ALL_DEVICES,
+						(const char *)&payload[3],
+						payload_size,
+						MIUS_DATA_PUSH_FROM_KERNEL);
+					if (ret != 0) {
+						pr_err("[MIUS] : failed to push apr payload to mius fifo");
+						return ret;
+					}
+				} else if (payload_size > MIUS_MSG_BUF_SIZE) {
+					pr_err("[MIUS] : dropping oversized apr payload size:%u", payload_size);
+				}
+				printk(KERN_DEBUG "[MIUS] mi us payload[3] = %d", (int)payload[3]);
 			if (payload[3] == 0 || payload[3] == 1) {
 				ups_event = payload[3];
 				ret = (int32_t)us_afe_callback((const uint32_t)payload[3]);

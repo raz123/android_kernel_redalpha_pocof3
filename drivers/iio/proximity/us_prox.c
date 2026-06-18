@@ -32,8 +32,12 @@
 #include <asm/bootinfo.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/workqueue.h>
+#include <linux/poll.h>
+#include <linux/iio/buffer_impl.h>
 
 #define US_PROX_IIO_NAME		"distance"
+#define US_PROX_KEEPALIVE_MS		2000
 
 static struct us_prox_data *g_us_prox;
 
@@ -45,6 +49,7 @@ struct us_prox_data {
 	struct iio_dev		*prox_idev;
 	bool			prox_enabled;
 	int				raw_data;
+	struct delayed_work	keepalive_work;
 };
 
 struct us_prox_el_data {
@@ -78,16 +83,71 @@ static const struct iio_chan_spec us_proximity_channels[] = {
 	IIO_CHAN_SOFT_TIMESTAMP(2)
 };
 
+static void us_prox_push_event(struct us_prox_data *data, int value)
+{
+	struct us_prox_el_data el_data;
+	struct timespec ts;
+
+	if (!data || !data->prox_idev)
+		return;
+
+	get_monotonic_boottime(&ts);
+	el_data.timestamp = timespec_to_ns(&ts);
+	el_data.data1 = value ? 5 : 0;
+	el_data.data2 = 0;
+
+	iio_push_to_buffers(data->prox_idev, (unsigned char *)&el_data);
+
+	set_bit(IIO_DATA_READY_BIT, &data->prox_idev->flags);
+	if (data->prox_idev->buffer)
+		wake_up_poll(&data->prox_idev->buffer->pollq, EPOLLIN | EPOLLRDNORM);
+}
+
+static void us_prox_keepalive_work(struct work_struct *work)
+{
+	struct us_prox_data *data = container_of(to_delayed_work(work),
+			struct us_prox_data, keepalive_work);
+	int value;
+
+	mutex_lock(&data->mutex);
+	value = data->raw_data;
+	mutex_unlock(&data->mutex);
+
+	us_prox_push_event(data, value);
+	schedule_delayed_work(&data->keepalive_work,
+			msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+}
+
 static int us_buffer_postenable(struct iio_dev *indio_dev)
 {
-	int ret = 0;
-	return ret;
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data = priv_data ? *priv_data : NULL;
+	int value;
+
+	if (!data)
+		return -EINVAL;
+
+	mutex_lock(&data->mutex);
+	data->prox_enabled = true;
+	value = data->raw_data;
+	mutex_unlock(&data->mutex);
+
+	us_prox_push_event(data, value);
+	return 0;
 }
 
 static int us_buffer_predisable(struct iio_dev *indio_dev)
 {
-	int ret = 0;
-	return ret;
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data = priv_data ? *priv_data : NULL;
+
+	if (!data)
+		return -EINVAL;
+
+	mutex_lock(&data->mutex);
+	data->prox_enabled = false;
+	mutex_unlock(&data->mutex);
+	return 0;
 }
 
 static const struct iio_buffer_setup_ops us_buffer_setup_ops = {
@@ -125,25 +185,13 @@ exit_free_trigger:
 
 int us_afe_callback(int data)
 {
-	int ret;
-	struct us_prox_el_data el_data;
-	struct timespec ts;
-
-	get_monotonic_boottime(&ts);
-	el_data.timestamp = timespec_to_ns(&ts);
 	pr_info("%s: data = %d\n", __func__, data);
 
-	if (!data)
-		el_data.data1 = 0;
-	else
-		el_data.data1 = 5;
-
 	if (g_us_prox) {
-		ret = iio_push_to_buffers(g_us_prox->prox_idev,
-					 (unsigned char *)&el_data);
-		if (ret < 0)
-			pr_err("%s: failed to push us prox data to buffer, err=%d\n",
-				__func__, ret);
+		mutex_lock(&g_us_prox->mutex);
+		g_us_prox->raw_data = data ? 1 : 0;
+		mutex_unlock(&g_us_prox->mutex);
+		us_prox_push_event(g_us_prox, data);
 	}
 
 	return 0;
@@ -183,8 +231,32 @@ static struct attribute_group us_prox_attribute_group = {
 	.attrs = us_prox_attributes,
 };
 
+static int us_prox_read_raw(struct iio_dev *indio_dev,
+			struct iio_chan_spec const *chan,
+			int *val, int *val2, long mask)
+{
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+
+	if (!priv_data || !*priv_data)
+		return -EINVAL;
+
+	data = *priv_data;
+
+	switch (mask) {
+	case IIO_CHAN_INFO_RAW:
+		mutex_lock(&data->mutex);
+		*val = data->raw_data;
+		mutex_unlock(&data->mutex);
+		return IIO_VAL_INT;
+	default:
+		return -EINVAL;
+	}
+}
+
 static const struct iio_info us_proximity_info = {
 	//.driver_module = THIS_MODULE,
+	.read_raw = us_prox_read_raw,
 	.attrs = &us_prox_attribute_group,
 };
 
@@ -266,6 +338,8 @@ static int us_prox_probe(struct platform_device *pdev)
 	g_us_prox = us_prox;
 
 	mutex_init(&us_prox->mutex);
+	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
+	schedule_delayed_work(&us_prox->keepalive_work, msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
@@ -284,6 +358,7 @@ static int us_prox_remove(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (us_prox) {
+		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		us_proximity_teardown(us_prox);
 		kfree(us_prox);
 	}
