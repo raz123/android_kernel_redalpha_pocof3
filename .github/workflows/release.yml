@@ -1,18 +1,16 @@
-name: Build Kernel (alioth)
+name: Release Kernel (alioth)
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - v*
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: Build Kernel for alioth (SM8250/SD870)
+  release:
+    name: Build and Release Kernel for alioth (SM8250/SD870)
     runs-on: [self-hosted, ubuntu-22.04]
 
     steps:
@@ -111,9 +109,37 @@ jobs:
             unzip -t "${{ env.ZIP_PATH }}"
           fi
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Generate SHA256 Checksum
+        run: |
+          cd /tmp
+          sha256sum "${{ env.ZIP_NAME }}" > "${{ env.ZIP_NAME }}.sha256"
+          echo "SHA256 checksum:"
+          cat "${{ env.ZIP_NAME }}.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_PATH }}
-          if-no-files-found: error
+          tag_name: ${{ github.ref_name }}
+          name: "RedAlpha Kernel alioth ${{ github.ref_name }}"
+          body: |
+            ## RedAlpha Kernel Release - alioth (Poco F3)
+
+            **Tag:** `${{ github.ref_name }}`
+            **Commit:** `${{ github.sha }}`
+
+            ### Included
+            - Kernel image: `Image.gz-dtb`
+            - Root solution: ReSukiSU
+            - AnyKernel3 flashable ZIP
+
+            ### Installation
+            1. Flash the ZIP via custom recovery (TWRP/OrangeFox)
+            2. Reboot and verify kernel version
+
+            ### SHA256
+            ```
+            ${{ env.ZIP_NAME }}: see .sha256 file
+            ```
+          files: |
+            ${{ env.ZIP_PATH }}
+            /tmp/${{ env.ZIP_NAME }}.sha256

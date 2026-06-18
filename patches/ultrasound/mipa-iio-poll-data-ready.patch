@@ -1,0 +1,29 @@
+diff --git a/include/linux/iio/iio.h b/include/linux/iio/iio.h
+--- a/include/linux/iio/iio.h
++++ b/include/linux/iio/iio.h
+@@ -34,6 +34,9 @@
+ 	IIO_LE,
+ };
+ 
++/* Driver data-ready flag for poll wakeup */
++#define IIO_DATA_READY_BIT 2
++
+ struct iio_chan_spec;
+ struct iio_dev;
+ 
+diff --git a/drivers/iio/industrialio-buffer.c b/drivers/iio/industrialio-buffer.c
+--- a/drivers/iio/industrialio-buffer.c
++++ b/drivers/iio/industrialio-buffer.c
+@@ -181,6 +181,13 @@ __poll_t iio_buffer_poll(struct file *filp,
+ 	poll_wait(filp, &rb->pollq, wait);
+ 	if (iio_buffer_ready(indio_dev, rb, rb->watermark, 0))
+ 		return EPOLLIN | EPOLLRDNORM;
++
++	if (test_bit(IIO_DATA_READY_BIT, &indio_dev->flags)) {
++		clear_bit(IIO_DATA_READY_BIT, &indio_dev->flags);
++		return EPOLLIN | EPOLLRDNORM;
++	}
++
+ 	return 0;
+ }
+ 

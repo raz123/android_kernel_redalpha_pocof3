@@ -1,0 +1,10 @@
+diff --git a/techpack/display/msm/dsi/dsi_panel.c b/techpack/display/msm/dsi/dsi_panel.c
+--- a/techpack/display/msm/dsi/dsi_panel.c
++++ b/techpack/display/msm/dsi/dsi_panel.c
+@@ -550,7 +550,7 @@
+ 	if (panel->reset_config.reset_powerdown_delay) {
+ 		usleep_range(panel->reset_config.reset_powerdown_delay * 1000,
+ 			(panel->reset_config.reset_powerdown_delay * 1000) + 100);
+-		DSI_WARN("reset_powerdown_delay = %d\n", panel->reset_config.reset_powerdown_delay);
++		DSI_INFO("reset_powerdown_delay = %d\n", panel->reset_config.reset_powerdown_delay);
+ 	}

@@ -1,0 +1,84 @@
+diff --git a/drivers/power/supply/ti/bq2597x_charger.c b/drivers/power/supply/ti/bq2597x_charger.c
+--- a/drivers/power/supply/ti/bq2597x_charger.c
++++ b/drivers/power/supply/ti/bq2597x_charger.c
+@@ -2263,8 +2263,18 @@ static void bq2597x_dump_important_regs(struct bq2597x *bq)
+ {
+ 
+ 	int ret;
+ 	u8 val;
++	u8 fault_stat = 0, fault_flag = 0;
++
++	/* Skip dump if no fault is active to reduce log noise */
++	if (!bq2597x_read_byte(bq, BQ2597X_REG_10, &fault_stat) &&
++	    !bq2597x_read_byte(bq, BQ2597X_REG_11, &fault_flag) &&
++	    !fault_stat && !fault_flag)
++		return;
++
++	bq_err("fault detected: stat=0x%02x flag=0x%02x\n",
++	       fault_stat, fault_flag);
+ 
+ 	ret = bq2597x_read_byte(bq, BQ2597X_REG_0A, &val);
+ 	if (!ret)
+diff --git a/drivers/power/supply/ti/bq2597x_charger_dagu.c b/drivers/power/supply/ti/bq2597x_charger_dagu.c
+--- a/drivers/power/supply/ti/bq2597x_charger_dagu.c
++++ b/drivers/power/supply/ti/bq2597x_charger_dagu.c
+@@ -2279,8 +2279,18 @@ static void bq2597x_dump_important_regs(struct bq2597x *bq)
+ {
+ 
+ 	int ret;
+ 	u8 val;
++	u8 fault_stat = 0, fault_flag = 0;
++
++	/* Skip dump if no fault is active to reduce log noise */
++	if (!bq2597x_read_byte(bq, BQ2597X_REG_10, &fault_stat) &&
++	    !bq2597x_read_byte(bq, BQ2597X_REG_11, &fault_flag) &&
++	    !fault_stat && !fault_flag)
++		return;
++
++	bq_err("fault detected: stat=0x%02x flag=0x%02x\n",
++	       fault_stat, fault_flag);
+ 
+ 	ret = bq2597x_read_byte(bq, BQ2597X_REG_0A, &val);
+ 	if (!ret)
+diff --git a/drivers/power/supply/ti/bq2597x_charger_munch.c b/drivers/power/supply/ti/bq2597x_charger_munch.c
+--- a/drivers/power/supply/ti/bq2597x_charger_munch.c
++++ b/drivers/power/supply/ti/bq2597x_charger_munch.c
+@@ -2222,8 +2222,18 @@ static void bq2597x_dump_important_regs(struct bq2597x *bq)
+ {
+ 
+ 	int ret;
+ 	u8 val;
++	u8 fault_stat = 0, fault_flag = 0;
++
++	/* Skip dump if no fault is active to reduce log noise */
++	if (!bq2597x_read_byte(bq, BQ2597X_REG_10, &fault_stat) &&
++	    !bq2597x_read_byte(bq, BQ2597X_REG_11, &fault_flag) &&
++	    !fault_stat && !fault_flag)
++		return;
++
++	bq_err("fault detected: stat=0x%02x flag=0x%02x\n",
++	       fault_stat, fault_flag);
+ 
+ 	ret = bq2597x_read_byte(bq, BQ2597X_REG_0A, &val);
+ 	if (!ret)
+diff --git a/drivers/power/supply/ti/bq2597x_charger_poussin.c b/drivers/power/supply/ti/bq2597x_charger_poussin.c
+--- a/drivers/power/supply/ti/bq2597x_charger_poussin.c
++++ b/drivers/power/supply/ti/bq2597x_charger_poussin.c
+@@ -2218,8 +2218,18 @@ static void bq2597x_dump_important_regs(struct bq2597x *bq)
+ {
+ 
+ 	int ret;
+ 	u8 val;
++	u8 fault_stat = 0, fault_flag = 0;
++
++	/* Skip dump if no fault is active to reduce log noise */
++	if (!bq2597x_read_byte(bq, BQ2597X_REG_10, &fault_stat) &&
++	    !bq2597x_read_byte(bq, BQ2597X_REG_11, &fault_flag) &&
++	    !fault_stat && !fault_flag)
++		return;
++
++	bq_err("fault detected: stat=0x%02x flag=0x%02x\n",
++	       fault_stat, fault_flag);
+ 
+ 	ret = bq2597x_read_byte(bq, BQ2597X_REG_0A, &val);
+ 	if (!ret)

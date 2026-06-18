@@ -1,0 +1,45 @@
+diff --git a/drivers/iio/proximity/us_prox.c b/drivers/iio/proximity/us_prox.c
+index 1bb14a88882e..61a085de8486 100644
+--- a/drivers/iio/proximity/us_prox.c
++++ b/drivers/iio/proximity/us_prox.c
+@@ -140,6 +140,7 @@ int us_afe_callback(int data)
+ 		el_data.data1 = 5;
+ 
+ 	if (g_us_prox) {
++		g_us_prox->raw_data = data;
+ 		ret = iio_push_to_buffers(g_us_prox->prox_idev, (unsigned char *)&el_data);
+ 		if (ret < 0)
+ 			pr_err("%s: failed to push us prox data to buffer, err=%d\n", __func__, ret);
+@@ -184,8 +185,32 @@ static struct attribute_group us_prox_attribute_group = {
+ 	.attrs = us_prox_attributes,
+ };
+ 
++static int us_prox_read_raw(struct iio_dev *indio_dev,
++			struct iio_chan_spec const *chan,
++			int *val, int *val2, long mask)
++{
++	struct us_prox_data **priv_data = iio_priv(indio_dev);
++	struct us_prox_data *data;
++
++	if (!priv_data || !*priv_data)
++		return -EINVAL;
++
++	data = *priv_data;
++
++	switch (mask) {
++	case IIO_CHAN_INFO_RAW:
++		mutex_lock(&data->mutex);
++		*val = data->raw_data;
++		mutex_unlock(&data->mutex);
++		return IIO_VAL_INT;
++	default:
++		return -EINVAL;
++	}
++}
++
+ static const struct iio_info us_proximity_info = {
+ 	//.driver_module = THIS_MODULE,
++	.read_raw = us_prox_read_raw,
+ 	.attrs = &us_prox_attribute_group,
+ };
+ 
