@@ -538,6 +538,7 @@ static unsigned int device_poll(struct file *file,
 {
 	unsigned int mask;
 
+	unsigned int fifo_len;
 	struct mius_device *device;
 	struct mius_data *mius_data;
 
