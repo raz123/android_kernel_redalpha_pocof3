@@ -107,6 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           ak3_dir="AnyKernel3"
+          rm -rf "$ak3_dir"
           git clone --filter=blob:none "$AK3_REPO" "$ak3_dir"
           git -C "$ak3_dir" checkout "$AK3_REF"
           rm -rf "$ak3_dir/.git" "$ak3_dir/.github" "$ak3_dir/README.md"
