@@ -2,6 +2,12 @@ name: Build Kernel (alioth)
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - v*
+
+permissions:
+  contents: write
 
 defaults:
   run:
@@ -11,22 +17,13 @@ concurrency:
   group: kernel-build-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   build:
-    name: ${{ matrix.candidate.name }}
+    name: Build alioth kernel
     runs-on: self-hosted
     container:
       image: ghcr.io/raz123/kernel-builder:latest
     timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        candidate:
-          - name: RedAlpha alioth
-            config: config/alioth.env
 
     steps:
       - name: Checkout source
@@ -58,8 +55,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/validate_build_config.sh
-          scripts/validate_build_config.sh "${{ matrix.candidate.config }}"
-          cat "${{ matrix.candidate.config }}" >> "$GITHUB_ENV"
+          scripts/validate_build_config.sh config/alioth.env
+          cat config/alioth.env >> "$GITHUB_ENV"
 
       - name: Apply local patches
         run: |
@@ -122,7 +119,11 @@ jobs:
             -e 's/^IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=1;/' \
             -e 's/^do.modules=.*/do.modules=0/' \
             "$ak3_dir/anykernel.sh"
-          zip_name="${ZIP_BASENAME}-r${GITHUB_RUN_NUMBER}.zip"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            zip_name="${ZIP_BASENAME}-${GITHUB_REF_NAME}.zip"
+          else
+            zip_name="${ZIP_BASENAME}-r${GITHUB_RUN_NUMBER}.zip"
+          fi
           (cd "$ak3_dir" && zip -r9 "../${zip_name}" . -x '*.git*' README.md)
           echo "ZIP_NAME=${zip_name}" >> "$GITHUB_ENV"
 
@@ -138,3 +139,32 @@ jobs:
           name: ${{ env.ZIP_NAME }}
           path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          sha256sum "$ZIP_NAME" > "${ZIP_NAME}.sha256"
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "RedAlpha Kernel alioth ${{ github.ref_name }}"
+          body: |
+            ## RedAlpha Kernel - alioth (Poco F3)
+
+            **Tag:** `${{ github.ref_name }}`
+
+            ### Included
+            - Kernel image: `Image` (uncompressed)
+            - Root solution: ReSukiSU
+            - AnyKernel3 flashable ZIP
+
+            ### Installation
+            1. Flash ZIP via recovery (TWRP/OrangeFox)
+            2. Reboot, verify kernel version
+          files: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_NAME }}.sha256
