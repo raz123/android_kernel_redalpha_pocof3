@@ -5,22 +5,38 @@ on:
     branches: [android16-aptusitu]
   pull_request:
     branches: [android16-aptusitu]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: kernel-build-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build Kernel for alioth (SM8250/SD870)
+    name: ${{ matrix.candidate.name }}
     runs-on: self-hosted
+    container:
+      image: ghcr.io/raz123/kernel-builder:latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate:
+          - name: RedAlpha alioth
+            config: config/alioth.env
 
     steps:
-      - name: Checkout Source
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Clone ReSukiSU
         run: |
@@ -32,118 +48,97 @@ jobs:
             cp -r /tmp/resukisu/uapi/* drivers/kernelsu/uapi/
           fi
 
-      - name: Setup ZyC-Clang 16 Toolchain
-        id: toolchain
+      - name: Verify toolchain
         run: |
-          TOOLCHAIN_DIR="${{ runner.tool_cache }}/zyc-clang"
-          CLANG_VERSION="Clang-16.0.6-20260510"
-          CLANG_URL="https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260510-release/${CLANG_VERSION}.tar.gz"
+          set -euo pipefail
+          echo "=== Compiler ==="
+          clang --version | sed -n '1,2p'
+          echo "=== Linker ==="
+          ld.lld --version
+          echo "=== Cross-compiler ==="
+          aarch64-linux-gnu-gcc --version | sed -n '1p'
 
-          if [ -d "${TOOLCHAIN_DIR}/bin" ] && [ -f "${TOOLCHAIN_DIR}/bin/clang" ]; then
-            echo "Toolchain cached, skipping download."
-          else
-            echo "Downloading ${CLANG_VERSION}..."
-            wget -q "${CLANG_URL}" -O /tmp/clang.tar.gz
-            mkdir -p "${TOOLCHAIN_DIR}"
-            tar -xf /tmp/clang.tar.gz -C "${TOOLCHAIN_DIR}" --strip-components=1
-            rm -f /tmp/clang.tar.gz
+      - name: Load build config
+        run: |
+          set -euo pipefail
+          chmod +x scripts/validate_build_config.sh
+          scripts/validate_build_config.sh "${{ matrix.candidate.config }}"
+          cat "${{ matrix.candidate.config }}" >> "$GITHUB_ENV"
+
+      - name: Apply local patches
+        run: |
+          set -euo pipefail
+          if [[ -n "${KERNEL_LOCAL_PATCHES:-}" ]]; then
+            IFS=',' read -ra local_patches <<< "$KERNEL_LOCAL_PATCHES"
+            for local_patch in "${local_patches[@]}"; do
+              echo "Applying: $local_patch"
+              git apply --recount "../${local_patch}"
+            done
           fi
 
-          echo "TOOLCHAIN_DIR=${TOOLCHAIN_DIR}" >> $GITHUB_OUTPUT
-          echo "Clang version:"
-          "${TOOLCHAIN_DIR}/bin/clang" --version | head -1
-
-      - name: Apply Local Patches
+      - name: Build kernel
+        env:
+          ARCH: arm64
+          SUBARCH: arm64
+          KBUILD_BUILD_USER: github-actions
+          KBUILD_BUILD_HOST: ubuntu
         run: |
-          echo "Applying patches from patches/..."
-          for dir in patches/stability patches/ultrasound patches/performance patches/networking; do
-            if [ -d "$dir" ]; then
-              for patch in "$dir"/*.patch; do
-                [ -f "$patch" ] || continue
-                echo "Applying: $patch"
-                git apply --check "$patch" 2>/dev/null && git apply "$patch" || echo "WARN: patch failed or already applied: $patch"
-              done
-            fi
-          done
+          set -euo pipefail
+          make O=out "$DEFCONFIG"
+          make O=out olddefconfig
+          make -j"$(nproc)" O=out \
+            CC=clang \
+            LD=ld.lld \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            Image
+          test -f out/arch/arm64/boot/Image
 
-      - name: Validate Defconfig
-        run: |
-          if [ -f scripts/validate_build_config.sh ]; then
-            chmod +x scripts/validate_build_config.sh
-            bash scripts/validate_build_config.sh arch/arm64/configs/alioth_defconfig
-          fi
-
-      - name: Build Kernel
-        run: |
-          export PATH="${{ steps.toolchain.outputs.TOOLCHAIN_DIR }}/bin:$PATH"
-          export ARCH=arm64
-          export SUBARCH=arm64
-
-          make ARCH=arm64 \
-               CROSS_COMPILE=aarch64-linux-gnu- \
-               CC=clang \
-               LLVM=1 \
-               LLVM_IAS=1 \
-               vendor/alioth_defconfig
-
-          make ARCH=arm64 \
-               CROSS_COMPILE=aarch64-linux-gnu- \
-               CC=clang \
-               LLVM=1 \
-               LLVM_IAS=1 \
-               -j$(nproc)
-
-      - name: Verify Kernel Image
-        run: |
-          if [ ! -f arch/arm64/boot/Image.gz-dtb ]; then
-            echo "Error: Image.gz-dtb not found!"
-            exit 1
-          fi
-          echo "Kernel image built successfully:"
-          ls -lh arch/arm64/boot/Image.gz-dtb
-
-      - name: Verify KSU Symbols
+      - name: Verify KSU symbols
         run: |
           if [ -f scripts/validate_symbols.sh ]; then
             chmod +x scripts/validate_symbols.sh
-            bash scripts/validate_symbols.sh arch/arm64/boot/Image.gz-dtb
-          else
-            echo "No symbol validation script, checking strings..."
-            strings arch/arm64/boot/Image.gz-dtb | grep -c ksu || true
+            scripts/validate_symbols.sh out/arch/arm64/boot/Image
           fi
 
-      - name: Package with AnyKernel3
+      - name: Package AnyKernel3 zip
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 /tmp/anykernel3
-          rm -rf /tmp/anykernel3/.git
+          set -euo pipefail
+          ak3_dir="AnyKernel3"
+          git clone --filter=blob:none "$AK3_REPO" "$ak3_dir"
+          git -C "$ak3_dir" checkout "$AK3_REF"
+          rm -rf "$ak3_dir/.git" "$ak3_dir/.github" "$ak3_dir/README.md"
+          cp "out/arch/arm64/boot/Image" "$ak3_dir/Image"
+          cp "out/.config" "$ak3_dir/.config"
+          gzip -c "out/.config" > "$ak3_dir/config.gz"
+          sed -i \
+            -e 's/^device.name1=.*/device.name1=alioth/' \
+            -e 's/^device.name2=.*/device.name2=aliothin/' \
+            -e 's/^device.name3=.*/device.name3=/' \
+            -e 's/^device.name4=.*/device.name4=/' \
+            -e 's/^device.name5=.*/device.name5=/' \
+            -e 's|^block=.*|block=/dev/block/bootdevice/by-name/boot|' \
+            -e 's|^BLOCK=.*|BLOCK=/dev/block/bootdevice/by-name/boot;|' \
+            -e 's/^is_slot_device=.*/is_slot_device=1/' \
+            -e 's/^IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=1;/' \
+            -e 's/^do.modules=.*/do.modules=0/' \
+            "$ak3_dir/anykernel.sh"
+          zip_name="${ZIP_BASENAME}-r${GITHUB_RUN_NUMBER}.zip"
+          (cd "$ak3_dir" && zip -r9 "../${zip_name}" . -x '*.git*' README.md)
+          echo "ZIP_NAME=${zip_name}" >> "$GITHUB_ENV"
 
-          cd /tmp/anykernel3
-          rm -f Image.gz-dtb dtb.img *.zip
-          cp "${{ github.workspace }}/arch/arm64/boot/Image.gz-dtb" .
-
-          sed -i 's/do.devicecheck=1/do.devicecheck=0/' anykernel.sh
-          sed -i 's/# begin device properties/## AnyKernel setup\n# kernel properties\n  kernel.string=RedAlpha Kernel for alioth (Poco F3)/' anykernel.sh
-
-          ZIP_NAME="RedAlpha-alioth-$(date +%Y%m%d)-${GITHUB_SHA::8}.zip"
-          zip -r9 "/tmp/${ZIP_NAME}" . -x "*.git*"
-
-          echo "ZIP_PATH=/tmp/${ZIP_NAME}" >> $GITHUB_ENV
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
-
-      - name: Run Validation
+      - name: Validate zip
         run: |
-          if [ -f scripts/validate_zip.sh ]; then
-            chmod +x scripts/validate_zip.sh
-            bash scripts/validate_zip.sh "${{ env.ZIP_PATH }}"
-          else
-            echo "No validation script found, skipping."
-            echo "Verifying ZIP integrity instead..."
-            unzip -t "${{ env.ZIP_PATH }}"
-          fi
+          set -euo pipefail
+          chmod +x scripts/validate_zip.sh
+          scripts/validate_zip.sh "$ZIP_NAME"
 
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_PATH }}
+          path: ${{ env.ZIP_NAME }}
           if-no-files-found: error
