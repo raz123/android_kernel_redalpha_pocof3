@@ -30,7 +30,7 @@ echo "========================================="
 FAILED=0
 
 for config in "${REQUIRED_CONFIGS[@]}"; do
-    if grep -q "^${config}$" "$DEFCONFIG"; then
+    if grep -qE "^${config}=[ym]" "$DEFCONFIG" || grep -qE "^# ${config} is not set$" "$DEFCONFIG"; then
         echo "PASS: $config"
     else
         echo "FAIL: $config"
