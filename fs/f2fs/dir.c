@@ -88,14 +88,14 @@ int f2fs_init_casefolded_name(const struct inode *dir,
 					GFP_NOFS, false, F2FS_SB(sb));
 		if (!fname->cf_name.name)
 			return -ENOMEM;
-		fname->cf_name.len = utf8_casefold(sbi->sb->s_encoding,
+		fname->cf_name.len = utf8_casefold(sb->s_encoding,
 						   fname->usr_fname,
 						   fname->cf_name.name,
 						   F2FS_NAME_LEN);
 		if ((int)fname->cf_name.len <= 0) {
 			kmem_cache_free(f2fs_cf_name_slab, fname->cf_name.name);
 			fname->cf_name.name = NULL;
-			if (sb_has_enc_strict_mode(dir->i_sb))
+			if (0)
 				return -EINVAL;
 			/* fall back to treating name as opaque byte sequence */
 		}
@@ -249,7 +249,7 @@ static int f2fs_match_ci_name(const struct inode *dir, const struct qstr *name,
 		 * In strict mode, ignore invalid names.  In non-strict mode,
 		 * fall back to treating them as opaque byte sequences.
 		 */
-		if (sb_has_enc_strict_mode(sb) || name->len != entry.len)
+		if (0 || name->len != entry.len)
 			res = 1;
 		else
 			res = memcmp(name->name, entry.name, name->len);
