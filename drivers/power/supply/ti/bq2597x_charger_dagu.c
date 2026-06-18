@@ -1103,8 +1103,7 @@ static int bq2597x_get_adc_data(struct bq2597x *bq, int channel, int *result)
 		*result = t;
 		/* vbat need calibration read by NU2105 */
 		if (channel == ADC_VBAT) {
-			t = t * (1 + 1803 / 1000000);
-			*result = t;
+			*result = (int)(((s64)t * 1001803) / 1000000);
 		}
 	} else {
 		ret = bq2597x_read_word(bq, ADC_REG_BASE + (channel << 1),
