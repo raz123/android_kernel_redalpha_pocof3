@@ -862,7 +862,8 @@ static struct page *validate_checkpoint(struct f2fs_sb_info *sbi,
 		return NULL;
 
 	if (le32_to_cpu(cp_block->cp_pack_total_block_count) >
-					sbi->blocks_per_seg) {
+					sbi->blocks_per_seg ||
+			le32_to_cpu(cp_block->cp_pack_total_block_count) <= F2FS_CP_PACKS) {
 		f2fs_warn(sbi, "invalid cp_pack_total_block_count:%u",
 			  le32_to_cpu(cp_block->cp_pack_total_block_count));
 		goto invalid_cp;
