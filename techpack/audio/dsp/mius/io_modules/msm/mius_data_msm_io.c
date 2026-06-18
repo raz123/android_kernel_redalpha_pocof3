@@ -95,6 +95,8 @@ int32_t mius_data_io_write(uint32_t message_id, const char *data,
 	result = mi_ultrasound_apr_set_parameter(MIUS_PORT_ID,
 		message_id, (u8 *)data,
 		(int32_t)data_size);
+	pr_info_ratelimited("[MIUS_DIAG] data_io_write msg=0x%x size=%zu ret=%d\n",
+			message_id, data_size, result);
 
 	/* msm_pcm_routing_release_lock();*/
 	return result;

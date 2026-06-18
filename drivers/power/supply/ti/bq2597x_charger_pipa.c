@@ -2277,6 +2277,16 @@ static void bq2597x_dump_important_regs(struct bq2597x *bq)
 
 	int ret;
 	u8 val;
+	u8 fault_stat = 0, fault_flag = 0;
+
+	/* Skip dump if no fault is active to reduce log noise */
+	if (!bq2597x_read_byte(bq, BQ2597X_REG_10, &fault_stat) &&
+	    !bq2597x_read_byte(bq, BQ2597X_REG_11, &fault_flag) &&
+	    !fault_stat && !fault_flag)
+		return;
+
+	bq_err("fault detected: stat=0x%02x flag=0x%02x\n",
+	       fault_stat, fault_flag);
 
 	ret = bq2597x_read_byte(bq, BQ2597X_REG_0A, &val);
 	if (!ret)
