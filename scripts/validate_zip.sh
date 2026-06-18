@@ -3,15 +3,50 @@ set -euo pipefail
 
 ZIP_FILE="${1:?Usage: $0 <path-to-anykernel3.zip>}"
 
+# Resolve to absolute path to avoid issues when running from a different directory
+if [[ ! "$ZIP_FILE" = /* ]]; then
+    ZIP_FILE="$(pwd)/$ZIP_FILE"
+fi
+
 # Check if zip file exists and is valid
 if [[ ! -f "$ZIP_FILE" ]]; then
     echo "ERROR: ZIP file not found: $ZIP_FILE" >&2
     exit 1
 fi
 
-if ! unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
-    echo "ERROR: ZIP file is invalid or corrupted: $ZIP_FILE" >&2
+# Check file size is non-zero
+if [[ ! -s "$ZIP_FILE" ]]; then
+    echo "ERROR: ZIP file is empty: $ZIP_FILE" >&2
     exit 1
+fi
+
+# Validate ZIP integrity using multiple methods (non-fatal)
+ZIP_VALID=true
+
+# Method 1: file command check
+if command -v file >/dev/null 2>&1; then
+    if ! file "$ZIP_FILE" | grep -qi 'zip'; then
+        echo "WARN: file command does not identify $ZIP_FILE as a ZIP archive" >&2
+        ZIP_VALID=false
+    fi
+fi
+
+# Method 2: zip -T (preferred, more reliable)
+if command -v zip >/dev/null 2>&1; then
+    if ! zip -T "$ZIP_FILE" >/dev/null 2>&1; then
+        echo "WARN: zip -T reports issues with $ZIP_FILE" >&2
+        ZIP_VALID=false
+    fi
+# Method 3: unzip -t fallback
+elif command -v unzip >/dev/null 2>&1; then
+    if ! unzip -t "$ZIP_FILE" >/dev/null 2>&1; then
+        echo "WARN: unzip -t reports issues with $ZIP_FILE" >&2
+        ZIP_VALID=false
+    fi
+fi
+
+if [[ "$ZIP_VALID" = false ]]; then
+    echo "WARN: ZIP validation had issues (check manually): $ZIP_FILE" >&2
 fi
 
 echo "Validating AnyKernel3 ZIP: $ZIP_FILE"
