@@ -54,9 +54,13 @@ jobs:
       - name: Load build config
         run: |
           set -euo pipefail
-          chmod +x scripts/validate_build_config.sh
-          scripts/validate_build_config.sh config/alioth.env
           cat config/alioth.env >> "$GITHUB_ENV"
+
+      - name: Validate defconfig
+        run: |
+          set -euo pipefail
+          chmod +x scripts/validate_build_config.sh
+          scripts/validate_build_config.sh arch/arm64/configs/alioth_defconfig
 
       - name: Apply local patches
         run: |
