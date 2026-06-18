@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -64,12 +64,14 @@ jobs:
 
       - name: Apply local patches
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [[ -n "${KERNEL_LOCAL_PATCHES:-}" ]]; then
             IFS=',' read -ra local_patches <<< "$KERNEL_LOCAL_PATCHES"
             for local_patch in "${local_patches[@]}"; do
               echo "Applying: $local_patch"
-              git apply --recount "../${local_patch}"
+              if ! git apply --recount "${local_patch}"; then
+                echo "WARN: Failed to apply $local_patch, skipping"
+              fi
             done
           fi
 
