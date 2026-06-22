@@ -35,7 +35,7 @@ jobs:
 
       - name: Patch ReSukiSU for MANUAL_HOOK compatibility
         run: |
-          sed -i '/^#elif defined(CONFIG_KSU_MANUAL_HOOK)$/a\    /* Compatibility: SUSFS symbol names used by fs hooks */\n    #define ksu_is_init_rc_hook_enabled ksu_init_rc_hook\n    #define ksu_is_input_hook_enabled ksu_input_hook' KernelSU/kernel/runtime/ksud_integration.c
+          perl -i -0pe 's/(#elif defined\(CONFIG_KSU_MANUAL_HOOK\))/$1\n    \/* Compatibility: SUSFS symbol names used by fs hooks *\/\n    #define ksu_is_init_rc_hook_enabled ksu_init_rc_hook\n    #define ksu_is_input_hook_enabled ksu_input_hook/' KernelSU/kernel/runtime/ksud_integration.c
 
       - name: Verify toolchain
         run: |
