@@ -2507,7 +2507,6 @@ static void zram_reset_device(struct zram *zram)
 	zram_meta_free(zram, disksize);
 	memset(&zram->stats, 0, sizeof(zram->stats));
 	zcomp_destroy(comp);
-	zram->comp = NULL;
 	reset_bdev(zram);
 }
 
