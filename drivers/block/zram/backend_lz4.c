@@ -22,6 +22,9 @@
 #include <linux/vmalloc.h>
 
 #include "backend_lz4.h"
+#ifndef LZ4_ACCELERATION_DEFAULT
+#define LZ4_ACCELERATION_DEFAULT 1
+#endif
 
 struct lz4_ctx {
 	void *mem;
@@ -120,9 +123,9 @@ static int lz4_compress(struct zcomp_params *params, struct zcomp_ctx *ctx,
 	int ret;
 
 	if (!zctx->cstrm) {
-		ret = LZ4_compress_fast(req->src, req->dst, req->src_len,
-					req->dst_len, params->level,
-					zctx->mem);
+		ret = LZ4_compress_fast_extState(zctx->mem, req->src, req->dst,
+					req->src_len, req->dst_len,
+					params->level);
 	} else {
 		/* cstrm needs to be reset from the template each time */
 		memcpy(zctx->cstrm, params->drv_data, sizeof(*zctx->cstrm));
