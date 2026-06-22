@@ -91,15 +91,29 @@ static struct zcomp_strm *zcomp_strm_alloc(struct zcomp *comp)
 	if (!zstrm)
 		return NULL;
 
-	zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+	if (comp->ops) {
+		int ret = comp->ops->create_ctx(comp->params, &zstrm->ctx);
+		if (ret) {
+			kfree(zstrm);
+			return NULL;
+		}
+	} else {
+		zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+		if (IS_ERR_OR_NULL(zstrm->tfm)) {
+			kfree(zstrm);
+			return NULL;
+		}
+	}
 	/*
 	 * allocate 2 pages. 1 for compressed data, plus 1 extra for the
 	 * case when compressed size is larger than the original one
 	 */
 	zstrm->buffer = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, 1);
-	if (IS_ERR_OR_NULL(zstrm->tfm) || !zstrm->buffer) {
-		zcomp_strm_free(zstrm);
-		zstrm = NULL;
+	if (!zstrm->buffer) {
+		if (comp->ops)
+			comp->ops->destroy_ctx(&zstrm->ctx);
+		kfree(zstrm);
+		return NULL;
 	}
 	return zstrm;
 }
@@ -218,6 +232,7 @@ int zcomp_decompress(struct zcomp *comp, struct zcomp_strm *zstrm,
 }
 void zcomp_setup_params(struct zcomp *comp, struct zcomp_params *params)
 {
+	comp->params = params;
 	if (comp && comp->ops && comp->ops->setup_params)
 		comp->ops->setup_params(params);
 }
@@ -272,6 +287,8 @@ cleanup:
 void zcomp_destroy(struct zcomp *comp)
 {
 	cpuhp_state_remove_instance(CPUHP_ZCOMP_PREPARE, &comp->node);
+	if (comp->ops)
+		comp->ops->release_params(comp->params);
 	free_percpu(comp->stream);
 	kfree(comp);
 }

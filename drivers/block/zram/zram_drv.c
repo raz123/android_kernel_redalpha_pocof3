@@ -2473,6 +2473,8 @@ out:
 	}
 	return ret;
 }
+static void comp_params_reset(struct zram *zram);
+
 
 static void zram_reset_device(struct zram *zram)
 {
@@ -2504,6 +2506,7 @@ static void zram_reset_device(struct zram *zram)
 	zram_meta_free(zram, disksize);
 	memset(&zram->stats, 0, sizeof(zram->stats));
 	zcomp_destroy(comp);
+	comp_params_reset(zram);
 	reset_bdev(zram);
 }
 
@@ -2532,7 +2535,13 @@ static ssize_t disksize_store(struct device *dev,
 		goto out_unlock;
 	}
 
-	comp = zcomp_create(zram->compressor);
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4)
+	if (sysfs_streq(zram->compressor, "lz4"))
+		comp = zcomp_create_with_ops(zram->compressor,
+					     &zram->comp_params);
+	else
+#endif
+		comp = zcomp_create(zram->compressor);
 	if (IS_ERR(comp)) {
 		pr_err("Cannot initialise %s compressing backend\n",
 				zram->compressor);
