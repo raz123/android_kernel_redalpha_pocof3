@@ -2502,6 +2502,7 @@ static void zram_reset_device(struct zram *zram)
 #endif
 
 	comp_params_reset(zram);
+	zram->comp = NULL;
 	up_write(&zram->init_lock);
 	/* I/O operation under all of CPU are done so let's free */
 	zram_meta_free(zram, disksize);
