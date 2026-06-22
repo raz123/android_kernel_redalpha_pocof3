@@ -338,19 +338,21 @@ struct zcomp *zcomp_create_with_ops(const char *alg, struct zcomp_params *params
 	}
 	comp->name = alg;
 
-	error = zcomp_init(comp);
-	if (error) {
-		kfree(comp);
-		return ERR_PTR(error);
-	}
-
 	if (params) {
 		comp->params = params;
 		error = comp->ops->setup_params(params);
 		if (error) {
-			zcomp_destroy(comp);
+			kfree(comp);
 			return ERR_PTR(error);
 		}
+	}
+
+	error = zcomp_init(comp);
+	if (error) {
+		if (params)
+			comp->ops->release_params(params);
+		kfree(comp);
+		return ERR_PTR(error);
 	}
 
 	return comp;
