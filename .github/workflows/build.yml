@@ -30,13 +30,8 @@ jobs:
 
       - name: Clone ReSukiSU
         run: |
-          git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU /tmp/resukisu
-          mkdir -p drivers/kernelsu
-          cp -r /tmp/resukisu/kernel/* drivers/kernelsu/
-          if [ -d /tmp/resukisu/uapi ]; then
-            mkdir -p drivers/kernelsu/uapi
-            cp -r /tmp/resukisu/uapi/* drivers/kernelsu/uapi/
-          fi
+          git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU
+          ln -sf ../KernelSU/kernel drivers/kernelsu
 
       - name: Verify toolchain
         run: |
