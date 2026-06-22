@@ -17,6 +17,25 @@
 #include <linux/crypto.h>
 
 #include "zcomp.h"
+extern const struct zcomp_ops backend_lz4;
+
+static const struct zcomp_ops *zcomp_backends[] = {
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4)
+	&backend_lz4,
+#endif
+	NULL
+};
+
+static const struct zcomp_ops *lookup_backend_ops(const char *comp)
+{
+	int i;
+
+	for (i = 0; zcomp_backends[i]; i++) {
+		if (sysfs_streq(comp, zcomp_backends[i]->name))
+			return zcomp_backends[i];
+	}
+	return NULL;
+}
 
 static const char * const backends[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
@@ -142,22 +161,31 @@ void zcomp_stream_put(struct zcomp *comp)
 	put_cpu_ptr(comp->stream);
 }
 
-int zcomp_compress(struct zcomp_strm *zstrm,
+int zcomp_compress(struct zcomp *comp, struct zcomp_strm *zstrm,
 		const void *src, unsigned int *dst_len)
 {
+	if (comp->ops) {
+		struct zcomp_req req = {
+			.src = src,
+			.dst = zstrm->buffer,
+			.src_len = PAGE_SIZE,
+			.dst_len = 2 * PAGE_SIZE,
+		};
+		int ret;
+
+		might_sleep();
+		ret = comp->ops->compress(comp->params, &zstrm->ctx, &req);
+		if (!ret)
+			*dst_len = req.dst_len;
+		return ret;
+	}
+
 	/*
-	 * Our dst memory (zstrm->buffer) is always `2 * PAGE_SIZE' sized
-	 * because sometimes we can endup having a bigger compressed data
-	 * due to various reasons: for example compression algorithms tend
-	 * to add some padding to the compressed buffer. Speaking of padding,
-	 * comp algorithm `842' pads the compressed length to multiple of 8
-	 * and returns -ENOSP when the dst memory is not big enough, which
-	 * is not something that ZRAM wants to see. We can handle the
-	 * `compressed_size > PAGE_SIZE' case easily in ZRAM, but when we
-	 * receive -ERRNO from the compressing backend we can't help it
-	 * anymore. To make `842' happy we need to tell the exact size of
-	 * the dst buffer, zram_drv will take care of the fact that
-	 * compressed buffer is too big.
+	 * Crypto fallback: our dst memory (zstrm->buffer) is always
+	 * `2 * PAGE_SIZE' sized because sometimes we can endup having
+	 * a bigger compressed data due to various reasons: for example
+	 * compression algorithms tend to add some padding to the
+	 * compressed buffer.
 	 */
 	*dst_len = PAGE_SIZE * 2;
 
@@ -166,10 +194,22 @@ int zcomp_compress(struct zcomp_strm *zstrm,
 			zstrm->buffer, dst_len);
 }
 
-int zcomp_decompress(struct zcomp_strm *zstrm,
+int zcomp_decompress(struct zcomp *comp, struct zcomp_strm *zstrm,
 		const void *src, unsigned int src_len, void *dst)
 {
 	unsigned int dst_len = PAGE_SIZE;
+
+	if (comp->ops) {
+		struct zcomp_req req = {
+			.src = src,
+			.dst = dst,
+			.src_len = src_len,
+			.dst_len = PAGE_SIZE,
+		};
+
+		might_sleep();
+		return comp->ops->decompress(comp->params, &zstrm->ctx, &req);
+	}
 
 	return crypto_comp_decompress(zstrm->tfm,
 			src, src_len,
@@ -256,5 +296,39 @@ struct zcomp *zcomp_create(const char *compress)
 		kfree(comp);
 		return ERR_PTR(error);
 	}
+	return comp;
+}
+
+struct zcomp *zcomp_create_with_ops(const char *alg, struct zcomp_params *params)
+{
+	struct zcomp *comp;
+	int error;
+
+	comp = kzalloc(sizeof(struct zcomp), GFP_KERNEL);
+	if (!comp)
+		return ERR_PTR(-ENOMEM);
+
+	comp->ops = lookup_backend_ops(alg);
+	if (!comp->ops) {
+		kfree(comp);
+		return ERR_PTR(-EINVAL);
+	}
+	comp->name = alg;
+
+	error = zcomp_init(comp);
+	if (error) {
+		kfree(comp);
+		return ERR_PTR(error);
+	}
+
+	if (params) {
+		error = comp->ops->setup_params(params);
+		if (error) {
+			zcomp_destroy(comp);
+			return ERR_PTR(error);
+		}
+		comp->params = params;
+	}
+
 	return comp;
 }

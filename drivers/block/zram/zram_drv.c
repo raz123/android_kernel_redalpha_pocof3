@@ -46,6 +46,7 @@ static DEFINE_MUTEX(zram_index_mutex);
 
 static int zram_major;
 static const char *default_compressor = CONFIG_ZRAM_DEF_COMP;
+#define ZRAM_MAX_ALGO_NAME_SZ	128
 
 /* Module params (documentation at end) */
 static unsigned int num_devices = 1;
@@ -2624,6 +2625,85 @@ static const struct block_device_operations zram_devops = {
 	.owner = THIS_MODULE
 };
 
+/*
+ * Algorithm parameter helpers
+ */
+static void comp_params_reset(struct zram *zram)
+{
+	vfree(zram->comp_params.dict);
+	zram->comp_params.dict = NULL;
+	zram->comp_params.dict_sz = 0;
+	zram->comp_params.level = ZCOMP_PARAM_NO_LEVEL;
+}
+
+static int comp_params_store(struct zram *zram, s32 level,
+			     const char *dict_path)
+{
+	loff_t sz = 0;
+	int ret = 0;
+
+	comp_params_reset(zram);
+
+	if (dict_path) {
+		ret = kernel_read_file_from_path(dict_path,
+						 &zram->comp_params.dict,
+						 &sz,
+						 INT_MAX,
+						 READING_FIRMWARE);
+		if (ret)
+			return ret;
+	}
+
+	zram->comp_params.dict_sz = sz;
+	zram->comp_params.level = level;
+	return 0;
+}
+
+static ssize_t algorithm_params_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf,
+				      size_t len)
+{
+	s32 level = ZCOMP_PARAM_NO_LEVEL;
+	char *args, *param, *val, *dict_path = NULL;
+	struct zram *zram = dev_to_zram(dev);
+	int ret;
+
+	args = skip_spaces(buf);
+	while (*args) {
+		args = next_arg(args, &param, &val);
+
+		if (!val || !*val)
+			return -EINVAL;
+
+		if (!strcmp(param, "level")) {
+			ret = kstrtoint(val, 10, &level);
+			if (ret)
+				return ret;
+			continue;
+		}
+
+		if (!strcmp(param, "dict")) {
+			dict_path = val;
+			continue;
+		}
+	}
+
+	down_write(&zram->init_lock);
+	if (init_done(zram)) {
+		ret = -EBUSY;
+		goto unlock;
+	}
+
+	ret = comp_params_store(zram, level, dict_path);
+	if (!ret && zram->comp)
+		zcomp_setup_params(zram->comp, &zram->comp_params);
+
+unlock:
+	up_write(&zram->init_lock);
+	return ret ? ret : len;
+}
+
 static DEVICE_ATTR_WO(compact);
 static DEVICE_ATTR_RW(disksize);
 static DEVICE_ATTR_RO(initstate);
@@ -2634,6 +2714,7 @@ static DEVICE_ATTR_WO(idle);
 static DEVICE_ATTR_WO(new);
 static DEVICE_ATTR_RW(max_comp_streams);
 static DEVICE_ATTR_RW(comp_algorithm);
+static DEVICE_ATTR_WO(algorithm_params);
 #ifdef CONFIG_ZRAM_WRITEBACK
 static DEVICE_ATTR_RW(backing_dev);
 static DEVICE_ATTR_WO(writeback);
@@ -2683,6 +2764,7 @@ static struct attribute *zram_disk_attrs[] = {
 	&dev_attr_low_compress_ratio.attr,
 	&dev_attr_memory_freeze.attr,
 #endif
+	&dev_attr_algorithm_params.attr,
 	NULL,
 };
 
