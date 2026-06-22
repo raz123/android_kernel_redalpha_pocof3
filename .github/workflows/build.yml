@@ -33,6 +33,10 @@ jobs:
           git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU
           ln -sf ../KernelSU/kernel drivers/kernelsu
 
+      - name: Patch ReSukiSU for MANUAL_HOOK compatibility
+        run: |
+          sed -i '/^#elif defined(CONFIG_KSU_MANUAL_HOOK)$/a\    /* Compatibility: SUSFS symbol names used by fs hooks */\n    #define ksu_is_init_rc_hook_enabled ksu_init_rc_hook\n    #define ksu_is_input_hook_enabled ksu_input_hook' KernelSU/kernel/runtime/ksud_integration.c
+
       - name: Verify toolchain
         run: |
           set -euo pipefail
