@@ -46,6 +46,9 @@ static int lz4_setup_params(struct zcomp_params *params)
 	LZ4_stream_t *dict_stream;
 	int ret;
 
+	if (params->drv_data)
+		lz4_release_params(params);
+
 	if (params->level == ZCOMP_PARAM_NO_LEVEL)
 		params->level = LZ4_ACCELERATION_DEFAULT;
 

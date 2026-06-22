@@ -72,8 +72,10 @@ static const char * const backends[] = {
 	NULL
 };
 
-static void zcomp_strm_free(struct zcomp_strm *zstrm)
+static void zcomp_strm_free(struct zcomp *comp, struct zcomp_strm *zstrm)
 {
+	if (comp->ops)
+		comp->ops->destroy_ctx(&zstrm->ctx);
 	if (!IS_ERR_OR_NULL(zstrm->tfm))
 		crypto_free_comp(zstrm->tfm);
 	free_pages((unsigned long)zstrm->buffer, 1);
@@ -225,11 +227,14 @@ int zcomp_decompress(struct zcomp *comp, struct zcomp_strm *zstrm,
 			src, src_len,
 			dst, &dst_len);
 }
-void zcomp_setup_params(struct zcomp *comp, struct zcomp_params *params)
+int zcomp_setup_params(struct zcomp *comp, struct zcomp_params *params)
 {
+	int ret = 0;
+
 	comp->params = params;
 	if (comp && comp->ops && comp->ops->setup_params)
-		comp->ops->setup_params(params);
+		ret = comp->ops->setup_params(params);
+	return ret;
 }
 
 int zcomp_cpu_up_prepare(unsigned int cpu, struct hlist_node *node)
@@ -256,7 +261,7 @@ int zcomp_cpu_dead(unsigned int cpu, struct hlist_node *node)
 
 	zstrm = *per_cpu_ptr(comp->stream, cpu);
 	if (!IS_ERR_OR_NULL(zstrm))
-		zcomp_strm_free(zstrm);
+		zcomp_strm_free(comp, zstrm);
 	*per_cpu_ptr(comp->stream, cpu) = NULL;
 	return 0;
 }

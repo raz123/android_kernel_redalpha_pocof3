@@ -2657,7 +2657,7 @@ static int comp_params_store(struct zram *zram, s32 level,
 		ret = kernel_read_file_from_path(dict_path,
 						 &zram->comp_params.dict,
 						 &sz,
-						 INT_MAX,
+						 64 * 1024,
 						 READING_FIRMWARE);
 		if (ret)
 			return ret;
@@ -2706,7 +2706,7 @@ static ssize_t algorithm_params_store(struct device *dev,
 
 	ret = comp_params_store(zram, level, dict_path);
 	if (!ret && zram->comp)
-		zcomp_setup_params(zram->comp, &zram->comp_params);
+		ret = zcomp_setup_params(zram->comp, &zram->comp_params);
 
 unlock:
 	up_write(&zram->init_lock);
