@@ -84,6 +84,7 @@ static void zcomp_strm_free(struct zcomp_strm *zstrm)
  * allocate new zcomp_strm structure with ->tfm initialized by
  * backend, return NULL on error
  */
+void zcomp_setup_params(struct zcomp *comp, struct zcomp_params *params);
 static struct zcomp_strm *zcomp_strm_alloc(struct zcomp *comp)
 {
 	struct zcomp_strm *zstrm = kmalloc(sizeof(*zstrm), GFP_KERNEL);
@@ -214,6 +215,11 @@ int zcomp_decompress(struct zcomp *comp, struct zcomp_strm *zstrm,
 	return crypto_comp_decompress(zstrm->tfm,
 			src, src_len,
 			dst, &dst_len);
+}
+void zcomp_setup_params(struct zcomp *comp, struct zcomp_params *params)
+{
+	if (comp && comp->ops && comp->ops->setup_params)
+		comp->ops->setup_params(params);
 }
 
 int zcomp_cpu_up_prepare(unsigned int cpu, struct hlist_node *node)
