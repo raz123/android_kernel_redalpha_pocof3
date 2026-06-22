@@ -78,7 +78,7 @@ static bool zram_dedup_match(struct zram *zram, struct zram_entry *entry,
 		match = !memcmp(mem, cmem, PAGE_SIZE);
 	} else {
 		zstrm = zcomp_stream_get(zram->comp);
-		if (!zcomp_decompress(zstrm, cmem, entry->len, zstrm->buffer))
+		if (!zcomp_decompress(zram->comp, zstrm, cmem, entry->len, zstrm->buffer))
 			match = !memcmp(mem, zstrm->buffer, PAGE_SIZE);
 		zcomp_stream_put(zram->comp);
 	}
