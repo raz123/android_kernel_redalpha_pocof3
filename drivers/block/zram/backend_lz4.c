@@ -89,6 +89,7 @@ static void lz4_destroy(struct zcomp_ctx *ctx)
 static int lz4_create(struct zcomp_params *params, struct zcomp_ctx *ctx)
 {
 	struct lz4_ctx *zctx;
+	pr_err("lz4_create: params=%p, dict_sz=%zu\n", params, params ? params->dict_sz : 0);
 
 	zctx = kzalloc(sizeof(*zctx), GFP_KERNEL);
 	if (!zctx)
@@ -121,6 +122,8 @@ static int lz4_compress(struct zcomp_params *params, struct zcomp_ctx *ctx,
 {
 	struct lz4_ctx *zctx = ctx->context;
 	int ret;
+	if (!zctx) { pr_err("lz4_compress: zctx is NULL\n"); return -EINVAL; }
+	if (!zctx->mem) { pr_err("lz4_compress: zctx->mem is NULL\n"); return -EINVAL; }
 
 	if (!zctx->cstrm) {
 		ret = LZ4_compress_fast_extState(zctx->mem, req->src, req->dst,
@@ -144,6 +147,7 @@ static int lz4_decompress(struct zcomp_params *params, struct zcomp_ctx *ctx,
 {
 	struct lz4_ctx *zctx = ctx->context;
 	int ret;
+	if (!zctx) { pr_err("lz4_decompress: zctx is NULL\n"); return -EINVAL; }
 
 	if (!zctx->dstrm) {
 		ret = LZ4_decompress_safe(req->src, req->dst, req->src_len,
