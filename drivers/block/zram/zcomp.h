@@ -10,8 +10,6 @@
 #ifndef _ZCOMP_H_
 #define _ZCOMP_H_
 
-#include <linux/mutex.h>
-
 #define ZCOMP_PARAM_NO_LEVEL	INT_MIN
 
 /*
@@ -38,7 +36,6 @@ struct zcomp_ctx {
 };
 
 struct zcomp_strm {
-	struct mutex lock;
 	/* compression buffer */
 	void *buffer;
 	struct zcomp_ctx ctx;
