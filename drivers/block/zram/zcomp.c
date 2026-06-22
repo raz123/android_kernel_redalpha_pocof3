@@ -84,7 +84,7 @@ static void zcomp_strm_free(struct zcomp *comp, struct zcomp_strm *zstrm)
 
 static struct zcomp_strm *zcomp_strm_alloc(struct zcomp *comp)
 {
-	struct zcomp_strm *zstrm = kmalloc(sizeof(*zstrm), GFP_KERNEL);
+	struct zcomp_strm *zstrm = kzalloc(sizeof(*zstrm), GFP_KERNEL);
 	if (!zstrm)
 		return NULL;
 
@@ -345,12 +345,12 @@ struct zcomp *zcomp_create_with_ops(const char *alg, struct zcomp_params *params
 	}
 
 	if (params) {
+		comp->params = params;
 		error = comp->ops->setup_params(params);
 		if (error) {
 			zcomp_destroy(comp);
 			return ERR_PTR(error);
 		}
-		comp->params = params;
 	}
 
 	return comp;
