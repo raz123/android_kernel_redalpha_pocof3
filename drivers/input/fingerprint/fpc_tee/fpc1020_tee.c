@@ -90,6 +90,7 @@ static struct vreg_config vreg_conf[] = {
 	/*{ "vcc_spi", 1800000UL, 1800000UL, 10, }, */
 	/*{ "vdd_io", 1800000UL, 1800000UL, 6000, }, */
 };
+#endif
 
 struct fpc1020_data {
 	struct device *dev;
