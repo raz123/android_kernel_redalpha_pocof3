@@ -25,7 +25,7 @@
  * as published by the Free Software Foundation.
  */
 
-// #define FPC_DRM_INTERFACE_WA
+#define FPC_DRM_INTERFACE_WA
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/atomic.h>
