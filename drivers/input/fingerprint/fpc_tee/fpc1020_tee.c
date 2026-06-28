@@ -903,6 +903,16 @@ static ssize_t irq_enable_set(struct device *dev, struct device_attribute *attr,
 	return rc ? rc : count;
 }
 
+
+static ssize_t screen_get(struct device *dev,
+			  struct device_attribute *attr, char *buf)
+{
+	struct fpc1020_data *fpc1020 = dev_get_drvdata(dev);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", !fpc1020->fb_black);
+}
+
+static DEVICE_ATTR(screen, S_IRUSR | S_IRGRP, screen_get, NULL);
+
 static DEVICE_ATTR(irq_enable, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP, NULL,
 		   irq_enable_set);
 
@@ -1191,7 +1201,6 @@ static int __init fpc1020_init(void)
 
 	return rc;
 }
-#endif
 
 
 static void __exit fpc1020_exit(void)
