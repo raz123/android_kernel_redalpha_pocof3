@@ -1192,6 +1192,8 @@ static int __init fpc1020_init(void)
 
 	return rc;
 }
+#endif
+
 
 static void __exit fpc1020_exit(void)
 {
