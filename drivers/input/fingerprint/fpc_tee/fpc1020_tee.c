@@ -81,7 +81,6 @@ struct vreg_config {
 	int gpio;
 };
 
-#ifdef CONFIG_FINGERPRINT_FP_VREG_CONTROL
 struct regulator *vreg;
 static int power_cfg;
 
@@ -90,7 +89,6 @@ static struct vreg_config vreg_conf[] = {
 	/*{ "vcc_spi", 1800000UL, 1800000UL, 10, }, */
 	/*{ "vdd_io", 1800000UL, 1800000UL, 6000, }, */
 };
-#endif
 
 struct fpc1020_data {
 	struct device *dev;
