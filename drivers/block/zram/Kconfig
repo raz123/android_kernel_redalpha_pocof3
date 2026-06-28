@@ -128,4 +128,12 @@ config MIUI_ZRAM_MEMORY_TRACKING
 	  of zRAM. Admin could see the information via
 	  /sys/block/zramX/.
 
+config ZRAM_BACKEND_LZ4
+	bool "LZ4 backend with dictionary support"
+	depends on ZRAM
+	default y
+	help
+	  Use direct LZ4 API instead of crypto wrapper.
+	  Supports dictionary pre-processing for 3-6x compression
+	  speedup when using LZ4 dictionaries.
 	  See Documentation/blockdev/zram.txt for more information.

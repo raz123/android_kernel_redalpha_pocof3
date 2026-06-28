@@ -17,6 +17,25 @@
 #include <linux/crypto.h>
 
 #include "zcomp.h"
+extern const struct zcomp_ops backend_lz4;
+
+static const struct zcomp_ops *zcomp_backends[] = {
+#if IS_ENABLED(CONFIG_ZRAM_BACKEND_LZ4)
+	&backend_lz4,
+#endif
+	NULL
+};
+
+static const struct zcomp_ops *lookup_backend_ops(const char *comp)
+{
+	int i;
+
+	for (i = 0; zcomp_backends[i]; i++) {
+		if (sysfs_streq(comp, zcomp_backends[i]->name))
+			return zcomp_backends[i];
+	}
+	return NULL;
+}
 
 static const char * const backends[] = {
 #if IS_ENABLED(CONFIG_CRYPTO_LZO)
@@ -53,33 +72,45 @@ static const char * const backends[] = {
 	NULL
 };
 
-static void zcomp_strm_free(struct zcomp_strm *zstrm)
+static void zcomp_strm_free(struct zcomp *comp, struct zcomp_strm *zstrm)
 {
+	if (comp->ops)
+		comp->ops->destroy_ctx(&zstrm->ctx);
 	if (!IS_ERR_OR_NULL(zstrm->tfm))
 		crypto_free_comp(zstrm->tfm);
 	free_pages((unsigned long)zstrm->buffer, 1);
 	kfree(zstrm);
 }
 
-/*
- * allocate new zcomp_strm structure with ->tfm initialized by
- * backend, return NULL on error
- */
 static struct zcomp_strm *zcomp_strm_alloc(struct zcomp *comp)
 {
-	struct zcomp_strm *zstrm = kmalloc(sizeof(*zstrm), GFP_KERNEL);
+	struct zcomp_strm *zstrm = kzalloc(sizeof(*zstrm), GFP_KERNEL);
 	if (!zstrm)
 		return NULL;
 
-	zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+	if (comp->ops) {
+		int ret = comp->ops->create_ctx(comp->params, &zstrm->ctx);
+		if (ret) {
+			kfree(zstrm);
+			return NULL;
+		}
+	} else {
+		zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+		if (IS_ERR_OR_NULL(zstrm->tfm)) {
+			kfree(zstrm);
+			return NULL;
+		}
+	}
 	/*
 	 * allocate 2 pages. 1 for compressed data, plus 1 extra for the
 	 * case when compressed size is larger than the original one
 	 */
 	zstrm->buffer = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, 1);
-	if (IS_ERR_OR_NULL(zstrm->tfm) || !zstrm->buffer) {
-		zcomp_strm_free(zstrm);
-		zstrm = NULL;
+	if (!zstrm->buffer) {
+		if (comp->ops)
+			comp->ops->destroy_ctx(&zstrm->ctx);
+		kfree(zstrm);
+		return NULL;
 	}
 	return zstrm;
 }
@@ -142,22 +173,31 @@ void zcomp_stream_put(struct zcomp *comp)
 	put_cpu_ptr(comp->stream);
 }
 
-int zcomp_compress(struct zcomp_strm *zstrm,
+int zcomp_compress(struct zcomp *comp, struct zcomp_strm *zstrm,
 		const void *src, unsigned int *dst_len)
 {
+	if (comp->ops) {
+		struct zcomp_req req = {
+			.src = src,
+			.dst = zstrm->buffer,
+			.src_len = PAGE_SIZE,
+			.dst_len = 2 * PAGE_SIZE,
+		};
+		int ret;
+
+		might_sleep();
+		ret = comp->ops->compress(comp->params, &zstrm->ctx, &req);
+		if (!ret)
+			*dst_len = req.dst_len;
+		return ret;
+	}
+
 	/*
-	 * Our dst memory (zstrm->buffer) is always `2 * PAGE_SIZE' sized
-	 * because sometimes we can endup having a bigger compressed data
-	 * due to various reasons: for example compression algorithms tend
-	 * to add some padding to the compressed buffer. Speaking of padding,
-	 * comp algorithm `842' pads the compressed length to multiple of 8
-	 * and returns -ENOSP when the dst memory is not big enough, which
-	 * is not something that ZRAM wants to see. We can handle the
-	 * `compressed_size > PAGE_SIZE' case easily in ZRAM, but when we
-	 * receive -ERRNO from the compressing backend we can't help it
-	 * anymore. To make `842' happy we need to tell the exact size of
-	 * the dst buffer, zram_drv will take care of the fact that
-	 * compressed buffer is too big.
+	 * Crypto fallback: our dst memory (zstrm->buffer) is always
+	 * `2 * PAGE_SIZE' sized because sometimes we can endup having
+	 * a bigger compressed data due to various reasons: for example
+	 * compression algorithms tend to add some padding to the
+	 * compressed buffer.
 	 */
 	*dst_len = PAGE_SIZE * 2;
 
@@ -166,14 +206,35 @@ int zcomp_compress(struct zcomp_strm *zstrm,
 			zstrm->buffer, dst_len);
 }
 
-int zcomp_decompress(struct zcomp_strm *zstrm,
+int zcomp_decompress(struct zcomp *comp, struct zcomp_strm *zstrm,
 		const void *src, unsigned int src_len, void *dst)
 {
 	unsigned int dst_len = PAGE_SIZE;
 
+	if (comp->ops) {
+		struct zcomp_req req = {
+			.src = src,
+			.dst = dst,
+			.src_len = src_len,
+			.dst_len = PAGE_SIZE,
+		};
+
+		might_sleep();
+		return comp->ops->decompress(comp->params, &zstrm->ctx, &req);
+	}
+
 	return crypto_comp_decompress(zstrm->tfm,
 			src, src_len,
 			dst, &dst_len);
+}
+int zcomp_setup_params(struct zcomp *comp, struct zcomp_params *params)
+{
+	int ret = 0;
+
+	comp->params = params;
+	if (comp && comp->ops && comp->ops->setup_params)
+		ret = comp->ops->setup_params(params);
+	return ret;
 }
 
 int zcomp_cpu_up_prepare(unsigned int cpu, struct hlist_node *node)
@@ -200,7 +261,7 @@ int zcomp_cpu_dead(unsigned int cpu, struct hlist_node *node)
 
 	zstrm = *per_cpu_ptr(comp->stream, cpu);
 	if (!IS_ERR_OR_NULL(zstrm))
-		zcomp_strm_free(zstrm);
+		zcomp_strm_free(comp, zstrm);
 	*per_cpu_ptr(comp->stream, cpu) = NULL;
 	return 0;
 }
@@ -226,6 +287,8 @@ cleanup:
 void zcomp_destroy(struct zcomp *comp)
 {
 	cpuhp_state_remove_instance(CPUHP_ZCOMP_PREPARE, &comp->node);
+	if (comp->ops)
+		comp->ops->release_params(comp->params);
 	free_percpu(comp->stream);
 	kfree(comp);
 }
@@ -256,5 +319,41 @@ struct zcomp *zcomp_create(const char *compress)
 		kfree(comp);
 		return ERR_PTR(error);
 	}
+	return comp;
+}
+
+struct zcomp *zcomp_create_with_ops(const char *alg, struct zcomp_params *params)
+{
+	struct zcomp *comp;
+	int error;
+
+	comp = kzalloc(sizeof(struct zcomp), GFP_KERNEL);
+	if (!comp)
+		return ERR_PTR(-ENOMEM);
+
+	comp->ops = lookup_backend_ops(alg);
+	if (!comp->ops) {
+		kfree(comp);
+		return ERR_PTR(-EINVAL);
+	}
+	comp->name = alg;
+
+	if (params) {
+		comp->params = params;
+		error = comp->ops->setup_params(params);
+		if (error) {
+			kfree(comp);
+			return ERR_PTR(error);
+		}
+	}
+
+	error = zcomp_init(comp);
+	if (error) {
+		if (params)
+			comp->ops->release_params(params);
+		kfree(comp);
+		return ERR_PTR(error);
+	}
+
 	return comp;
 }

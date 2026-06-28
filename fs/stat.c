@@ -149,10 +149,13 @@ EXPORT_SYMBOL(vfs_getattr);
  *
  * 0 will be returned on success, and a -ve error code if unsuccessful.
  */
+#ifdef CONFIG_KSU_MANUAL_HOOK
+extern struct static_key_true ksu_init_rc_hook;
+#endif
 #ifdef CONFIG_KSU_SUSFS
 extern struct static_key_true ksu_is_init_rc_hook_enabled;
 extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
-#endif // #ifdef CONFIG_KSU_SUSFS
+#endif
 
 int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 		 u32 request_mask, unsigned int query_flags)
@@ -170,7 +173,7 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 #ifdef CONFIG_KSU_SUSFS
 		if (static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
 			ksu_handle_vfs_fstat(fd, &stat->size);
-#endif // #ifdef CONFIG_KSU_SUSFS
+#endif
 
 		fdput(f);
 	}
@@ -398,6 +401,12 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 
 	return cp_new_stat(&stat, statbuf);
 }
+#ifdef CONFIG_KSU_MANUAL_HOOK
+extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+extern void ksu_handle_fstat64_ret(unsigned long *fd, struct stat64 __user **statbuf_ptr);
+#endif
+#endif
 
 #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
 SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
@@ -421,6 +430,9 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
 	if (!error)
 		error = cp_new_stat(&stat, statbuf);
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_newfstat_ret(&fd, &statbuf);
+#endif
 	return error;
 }
 
@@ -547,6 +559,9 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
 	if (!error)
 		error = cp_new_stat64(&stat, statbuf);
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_fstat64_ret(&fd, &statbuf);
+#endif
 	return error;
 }
 
