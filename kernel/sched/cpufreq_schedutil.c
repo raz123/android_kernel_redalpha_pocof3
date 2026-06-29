@@ -59,6 +59,9 @@ struct sugov_policy {
 
 	bool			limits_changed;
 	bool			need_freq_update;
+
+	unsigned long		dvfs_capacity;
+	u16			dvfs_headroom_lut[SCHED_CAPACITY_SCALE + 1];
 };
 
 struct sugov_cpu {
@@ -73,6 +76,7 @@ struct sugov_cpu {
 	struct sched_walt_cpu_load walt_load;
 
 	unsigned long util;
+	u16			*dvfs_headroom_lut;
 	unsigned int flags;
 
 	unsigned long		bw_dl;
@@ -298,6 +302,29 @@ __weak unsigned long glk_cal_freq(struct cpufreq_policy *policy,
 #endif
 
 #define TARGET_LOAD 80
+static unsigned long sugov_apply_dvfs_headroom(unsigned long util,
+					       unsigned long capacity,
+					       unsigned long threshold)
+{
+	unsigned long capped_util, delta, delta_t, headroom;
+
+	capped_util = min(util, capacity);
+	delta = capacity - capped_util;
+	delta_t = capacity - threshold;
+	headroom = (delta * delta * delta * 5) / (delta_t * capacity * 16);
+	if (capped_util < threshold)
+		headroom *= (capped_util * capped_util) / (threshold * threshold);
+
+	return capped_util + headroom;
+}
+
+static unsigned long apply_dvfs_headroom(unsigned long util, int cpu)
+{
+	struct sugov_cpu *sg_cpu = &per_cpu(sugov_cpu, cpu);
+
+	util = min_t(unsigned long, util, SCHED_CAPACITY_SCALE);
+	return sg_cpu->dvfs_headroom_lut[util];
+}
 /**
  * get_next_freq - Compute a new frequency for a given cpufreq policy.
  * @sg_policy: schedutil policy object to compute the new frequency for.
@@ -330,6 +357,7 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	unsigned int freq = arch_scale_freq_invariant() ?
 				policy->cpuinfo.max_freq : policy->cur;
 
+	util = apply_dvfs_headroom(util, sg_policy->policy->cpu);
 #ifdef CONFIG_PACKAGE_RUNTIME_INFO
 	walt_freq = map_util_freq(util, freq, max);
 	freq = glk_cal_freq(policy, util, max);
@@ -1111,6 +1139,20 @@ static struct kobj_type sugov_tunables_ktype = {
 /********************** cpufreq governor interface *********************/
 
 static struct cpufreq_governor schedutil_gov;
+static void sugov_build_dvfs_headroom_lut(struct sugov_policy *sg_policy)
+{
+	unsigned long capacity, threshold;
+	unsigned long util;
+	u16 *lut = sg_policy->dvfs_headroom_lut;
+
+	capacity = capacity_orig_of(sg_policy->policy->cpu);
+	if (sg_policy->dvfs_capacity == capacity)
+		return;
+	sg_policy->dvfs_capacity = capacity;
+	threshold = (capacity * 15) / 100;
+	for (util = 0; util <= SCHED_CAPACITY_SCALE; util++)
+		lut[util] = sugov_apply_dvfs_headroom(util, capacity, threshold);
+}
 
 static struct sugov_policy *sugov_policy_alloc(struct cpufreq_policy *policy)
 {
@@ -1260,6 +1302,8 @@ static int sugov_init(struct cpufreq_policy *policy)
 		goto disable_fast_switch;
 	}
 
+	sugov_build_dvfs_headroom_lut(sg_policy);
+
 	ret = sugov_kthread_create(sg_policy);
 	if (ret)
 		goto free_sg_policy;
@@ -1387,6 +1431,7 @@ static int sugov_start(struct cpufreq_policy *policy)
 		memset(sg_cpu, 0, sizeof(*sg_cpu));
 		sg_cpu->cpu			= cpu;
 		sg_cpu->sg_policy		= sg_policy;
+		sg_cpu->dvfs_headroom_lut	= sg_policy->dvfs_headroom_lut;
 		sg_cpu->min			=
 			(SCHED_CAPACITY_SCALE * policy->cpuinfo.min_freq) /
 			policy->cpuinfo.max_freq;
@@ -1425,6 +1470,7 @@ static void sugov_limits(struct cpufreq_policy *policy)
 	unsigned long flags, now;
 	unsigned int freq;
 
+	sugov_build_dvfs_headroom_lut(sg_policy);
 	if (!policy->fast_switch_enabled) {
 		mutex_lock(&sg_policy->work_lock);
 		raw_spin_lock_irqsave(&sg_policy->update_lock, flags);
