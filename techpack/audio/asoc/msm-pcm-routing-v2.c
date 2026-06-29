@@ -1678,7 +1678,7 @@ static int msm_pcm_routing_channel_mixer_v2(int fe_id, bool perf_mode,
 	int j = 0, be_id = 0;
 	int ret = 0;
 
-	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
+	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
 		pr_err("%s: invalid FE %d\n", __func__, fe_id);
 		return 0;
 	}
@@ -1745,7 +1745,7 @@ static int msm_pcm_routing_channel_mixer(int fe_id, bool perf_mode,
 		return ret;
 	}
 
-	if (fe_id >= MSM_FRONTEND_DAI_MAX) {
+	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
 		pr_err("%s: invalid FE %d\n", __func__, fe_id);
 		return 0;
 	}
