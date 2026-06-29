@@ -8452,6 +8452,7 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 				if (get_hw_version_platform() == HARDWARE_PLATFORM_UMI ||
 				    get_hw_version_platform() == HARDWARE_PLATFORM_CMI ||
 				    get_hw_version_platform() == HARDWARE_PLATFORM_APOLLO ||
+				    get_hw_version_platform() == HARDWARE_PLATFORM_ALIOTH ||
 				    get_hw_version_platform() == HARDWARE_PLATFORM_THYME ||
 				    get_hw_version_platform() == HARDWARE_PLATFORM_ENUMA ||
 				    get_hw_version_platform() == HARDWARE_PLATFORM_ELISH ||
