@@ -30,7 +30,6 @@ jobs:
       - name: Build kernel
         run: |
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v ${{ github.workspace }}/build:/workspace \
             -w /workspace \
             -e KSU=${{ inputs.ksu && '1' || '0' }} \
