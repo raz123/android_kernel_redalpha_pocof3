@@ -13,6 +13,12 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
+      - name: Clean workspace
+        run: |
+          if [ -d "${{ github.workspace }}" ]; then
+            sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.[!.]*
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Build Docker image
@@ -26,6 +32,10 @@ jobs:
             -e KSU=${{ inputs.ksu && '1' || '0' }} \
             kernel-builder \
             bash -c "chmod +x build-kernel.sh && KSU=\$KSU bash build-kernel.sh"
+
+      - name: Fix file permissions
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }} || true
 
       - name: QA Gates
         run: |
