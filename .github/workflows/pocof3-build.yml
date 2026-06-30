@@ -18,24 +18,21 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
-      - name: Prepare clean workspace
-        run: |
-          sudo rm -rf ${{ github.workspace }}/build || true
-          mkdir -p ${{ github.workspace }}/build
+      - name: Clean previous build artifacts
+        run: sudo rm -rf ${{ github.workspace }}/build || true
 
       - uses: actions/checkout@v4
         with:
-          path: build
           clean: false
 
       - name: Build Docker image
-        working-directory: build
         run: docker build -t kernel-builder .
 
       - name: Build kernel
         run: |
           docker run --rm \
-            -v ${{ github.workspace }}/build:/workspace \
+            --user "$(id -u):$(id -g)" \
+            -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             -e KSU=${{ inputs.ksu && '1' || '0' }} \
             kernel-builder \
@@ -43,10 +40,9 @@ jobs:
 
       - name: Fix file permissions
         if: always()
-        run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/build || true
+        run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }} || true
 
       - name: QA Gates
-        working-directory: build
         run: |
           echo "=== QA Gates ==="
           FAILED=0
@@ -95,20 +91,19 @@ jobs:
         with:
           name: kernel-image
           path: |
-            build/out/arch/arm64/boot/Image
-            build/out/arch/arm64/boot/Image.gz-dtb
-            build/out/arch/arm64/boot/Image.gz
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/Image.gz
           if-no-files-found: error
 
       - name: Upload modules
         uses: actions/upload-artifact@v4
         with:
           name: kernel-modules
-          path: build/out/modules/
+          path: out/modules/
           if-no-files-found: ignore
 
       - name: Package AnyKernel3 ZIP
-        working-directory: build
         run: |
           GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
           KSU_SUFFIX="_ReSukiSU"
@@ -128,14 +123,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: anykernel3-zip
-          path: build/*.zip
+          path: "*.zip"
           if-no-files-found: error
 
       - name: Create GitHub Release
         if: inputs.release == true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: build
         run: |
           BUILD_DATE=$(date +'%Y%m%d')
           TAG_NAME="v${BUILD_DATE}-$(git rev-parse --short=7 HEAD)"
