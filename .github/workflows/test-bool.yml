@@ -1,0 +1,19 @@
+name: Test Bool Inputs
+on:
+  workflow_dispatch:
+    inputs:
+      ksu:
+        description: 'Enable KSU'
+        required: true
+        type: boolean
+        default: true
+      release:
+        description: 'Release'
+        required: false
+        type: boolean
+        default: false
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - run: echo "ksu=${{ inputs.ksu }} release=${{ inputs.release }}"
