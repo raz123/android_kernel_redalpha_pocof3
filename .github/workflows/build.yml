@@ -14,9 +14,6 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: self-hosted
@@ -44,9 +41,7 @@ jobs:
           echo "=== QA Gates ==="
           FAILED=0
 
-          # Gates 0-1: KSU-only, skip when ksu=false
           if [ "${{ inputs.ksu }}" == "true" ]; then
-            # Gate 0: SuSFS
             if grep -rq "CONFIG_KSU_SUSFS\|ksu_susfs\|susfs_" drivers/kernelsu/ 2>/dev/null; then
               echo "Gate 0 (SuSFS): PASS"
             else
@@ -54,7 +49,6 @@ jobs:
               FAILED=1
             fi
 
-            # Gate 1: Hook mode
             if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
               echo "Gate 1 (Hook mode): PASS"
             else
@@ -66,7 +60,6 @@ jobs:
             echo "Gate 1 (Hook mode): SKIPPED (vanilla build)"
           fi
 
-          # Gate 2: KALLSYMS
           if grep -q "CONFIG_KALLSYMS=y" out/.config && grep -q "CONFIG_KALLSYMS_ALL=y" out/.config; then
             echo "Gate 2 (KALLSYMS): PASS"
           else
@@ -74,7 +67,6 @@ jobs:
             FAILED=1
           fi
 
-          # Gate 3: SELinux
           if grep -q "CONFIG_SECURITY_SELINUX=y" out/.config; then
             echo "Gate 3 (SELinux): PASS"
           else
@@ -82,7 +74,6 @@ jobs:
             FAILED=1
           fi
 
-          # Gate 4: Binder
           if grep -q "CONFIG_ANDROID_BINDER" out/.config; then
             echo "Gate 4 (Binder): PASS"
           else
@@ -90,7 +81,6 @@ jobs:
             FAILED=1
           fi
 
-          # Gate 5: Boot image
           IMAGE_FILE=""
           if [ -f "out/arch/arm64/boot/Image" ]; then
             IMAGE_FILE="out/arch/arm64/boot/Image"
@@ -106,8 +96,6 @@ jobs:
               echo "Gate 5 (Boot image >15MB): FAIL (${SIZE} bytes < 15728640)"
               FAILED=1
             fi
-
-            # Gate 6: Size budget (warning)
             if [ "$SIZE" -gt 26214400 ]; then
               echo "Gate 6 (Size budget >25MB): WARNING (${SIZE} bytes)"
             else
@@ -152,7 +140,6 @@ jobs:
           git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
           mkdir -p anykernel/kernels/aosp/
 
-          # Copy kernel image
           if [ -f "out/arch/arm64/boot/Image" ]; then
             cp out/arch/arm64/boot/Image anykernel/kernels/aosp/
           elif [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
@@ -162,7 +149,6 @@ jobs:
             exit 1
           fi
 
-          # Copy modules if present
           if [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ]; then
             mkdir -p anykernel/anykernel-modules/
             cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
