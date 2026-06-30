@@ -3,7 +3,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bc bison build-essential ca-certificates curl flex \
     gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git \
-    libelf-dev libncurses-dev libssl-dev lz4 python3 \
+    libelf-dev libncurses-dev libssl-dev libxml2 lz4 python3 \
     rsync unzip wget zip \
     && rm -rf /var/lib/apt/lists/*
 
