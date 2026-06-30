@@ -3,12 +3,9 @@ set -euo pipefail
 DEVICE="${DEVICE:-alioth}"
 KSU="${KSU:-1}"
 
-# Toolchain — use AOSP kernel-build clang
-if [ ! -d "toolchain/clang" ]; then
-    git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-        -b master-kernel-build-2024 toolchain/clang
-fi
-export PATH="$PWD/toolchain/clang/bin:$PATH"
+# Toolchain — system clang from Docker image (already installed via apt)
+which clang || { echo "ERROR: clang not found in PATH"; exit 1; }
+echo "Using: $(clang --version | head -1)"
 
 # Cross-compiler
 export ARCH=arm64
