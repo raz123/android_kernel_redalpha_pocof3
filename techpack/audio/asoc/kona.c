@@ -7160,6 +7160,7 @@ static struct snd_soc_dai_link msm_tdm_be_dai_links[] = {
 		.ops = &kona_tdm_be_ops,
 		.ignore_suspend = 1,
 	},
+#if !defined(CONFIG_TARGET_PRODUCT_ALIOTH)
 	{
 		.name = LPASS_BE_QUAT_TDM_RX_0,
 		.stream_name = "Quaternary TDM0 Playback",
@@ -7175,6 +7176,7 @@ static struct snd_soc_dai_link msm_tdm_be_dai_links[] = {
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
 	},
+#endif
 	{
 		.name = LPASS_BE_QUAT_TDM_TX_0,
 		.stream_name = "Quaternary TDM0 Capture",
@@ -7559,6 +7561,40 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 static struct snd_soc_dai_link tert_mi2s_rx_cs35l41_dai_links[] = {
 #if defined(CONFIG_TARGET_PRODUCT_APOLLO) || defined(CONFIG_TARGET_PRODUCT_CAS)  || defined(CONFIG_TARGET_PRODUCT_ALIOTH)|| defined(CONFIG_TARGET_PRODUCT_ENUMA) || defined(CONFIG_TARGET_PRODUCT_ELISH) \
  	|| defined(CONFIG_TARGET_PRODUCT_PSYCHE) || defined(CONFIG_TARGET_PRODUCT_DAGU)
+#if defined(CONFIG_TARGET_PRODUCT_ALIOTH)
+	{
+		.name = LPASS_BE_QUAT_TDM_RX_0,
+		.stream_name = "Quaternary TDM0 Playback",
+		.cpu_dai_name = "msm-dai-q6-tdm.36912",
+		.platform_name = "msm-pcm-routing",
+		.codecs = cs35l41_codec_components,
+		.num_codecs = ARRAY_SIZE(cs35l41_codec_components),
+		.no_pcm = 1,
+		.dpcm_playback = 1,
+		.id = MSM_BACKEND_DAI_QUAT_TDM_RX_0,
+		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &kona_tdm_be_ops,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.init = &cs35l41_init,
+	},
+	{
+		.name = LPASS_BE_QUAT_TDM_RX_1,
+		.stream_name = "Quaternary TDM1 Playback",
+		.cpu_dai_name = "msm-dai-q6-tdm.36914",
+		.platform_name = "msm-pcm-routing",
+		.codecs = cs35l41_codec_components,
+		.num_codecs = ARRAY_SIZE(cs35l41_codec_components),
+		.no_pcm = 1,
+		.dpcm_playback = 1,
+		.id = MSM_BACKEND_DAI_QUAT_TDM_RX_1,
+		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &kona_tdm_be_ops,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		.init = &cs35l41_init,
+	},
+#else
 	{
 		.name = LPASS_BE_TERT_TDM_RX_0,
 		.stream_name = "Tertiary TDM0 Playback",
@@ -7591,6 +7627,7 @@ static struct snd_soc_dai_link tert_mi2s_rx_cs35l41_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		.init = &cs35l41_init,
 	},
+#endif
 #else
 	{
 		.name = LPASS_BE_TERT_MI2S_RX,
