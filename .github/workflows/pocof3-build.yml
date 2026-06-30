@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Docker image
         working-directory: build
-        run: docker build -t kernel-builder .
+        run: docker build --no-cache -t kernel-builder .
 
       - name: Build kernel
         run: |
