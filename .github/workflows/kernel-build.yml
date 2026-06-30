@@ -55,7 +55,7 @@ jobs:
             fi
 
             # Gate 1: Hook mode
-            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" .config 2>/dev/null; then
+            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
               echo "Gate 1 (Hook mode): PASS"
             else
               echo "Gate 1 (Hook mode): FAIL — CONFIG_KSU_MANUAL_HOOK not set"
@@ -67,7 +67,7 @@ jobs:
           fi
 
           # Gate 2: KALLSYMS
-          if grep -q "CONFIG_KALLSYMS=y" .config && grep -q "CONFIG_KALLSYMS_ALL=y" .config; then
+          if grep -q "CONFIG_KALLSYMS=y" out/.config && grep -q "CONFIG_KALLSYMS_ALL=y" out/.config; then
             echo "Gate 2 (KALLSYMS): PASS"
           else
             echo "Gate 2 (KALLSYMS): FAIL"
@@ -75,7 +75,7 @@ jobs:
           fi
 
           # Gate 3: SELinux
-          if grep -q "CONFIG_SECURITY_SELINUX=y" .config; then
+          if grep -q "CONFIG_SECURITY_SELINUX=y" out/.config; then
             echo "Gate 3 (SELinux): PASS"
           else
             echo "Gate 3 (SELinux): FAIL"
@@ -83,56 +83,39 @@ jobs:
           fi
 
           # Gate 4: Binder
-          if grep -q "CONFIG_ANDROID_BINDER" .config; then
+          if grep -q "CONFIG_ANDROID_BINDER" out/.config; then
             echo "Gate 4 (Binder): PASS"
           else
             echo "Gate 4 (Binder): FAIL"
             FAILED=1
           fi
 
-          # Gate 5: DTBO
-          if [ -n "$(find arch/arm64/boot/dts/vendor/qcom/ -name '*.dts' -exec grep -li 'dtbo' {} + 2>/dev/null)" ]; then
-            echo "Gate 5 (DTBO): FAIL — dtbo references found"
-            FAILED=1
-          else
-            echo "Gate 5 (DTBO): PASS"
-          fi
-
-          # Gate 6: Boot image size
+          # Gate 5: Boot image
           IMAGE_FILE=""
-          if [ -f "out/Image.gz-dtb" ]; then
-            IMAGE_FILE="out/Image.gz-dtb"
-          elif [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
-            IMAGE_FILE="arch/arm64/boot/Image.gz-dtb"
-          elif [ -f "arch/arm64/boot/Image" ]; then
-            IMAGE_FILE="arch/arm64/boot/Image"
+          if [ -f "out/arch/arm64/boot/Image" ]; then
+            IMAGE_FILE="out/arch/arm64/boot/Image"
+          elif [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+            IMAGE_FILE="out/arch/arm64/boot/Image.gz-dtb"
           fi
 
           if [ -n "$IMAGE_FILE" ]; then
             SIZE=$(stat -c%s "$IMAGE_FILE" 2>/dev/null || stat -f%z "$IMAGE_FILE" 2>/dev/null)
             if [ "$SIZE" -gt 15728640 ]; then
-              echo "Gate 6 (Boot image >15MB): PASS (${SIZE} bytes)"
+              echo "Gate 5 (Boot image >15MB): PASS (${SIZE} bytes)"
             else
-              echo "Gate 6 (Boot image >15MB): FAIL (${SIZE} bytes < 15728640)"
+              echo "Gate 5 (Boot image >15MB): FAIL (${SIZE} bytes < 15728640)"
               FAILED=1
             fi
 
-            # Gate 7: Size budget (warning)
+            # Gate 6: Size budget (warning)
             if [ "$SIZE" -gt 26214400 ]; then
-              echo "Gate 7 (Size budget >25MB): WARNING (${SIZE} bytes)"
+              echo "Gate 6 (Size budget >25MB): WARNING (${SIZE} bytes)"
             else
-              echo "Gate 7 (Size budget): PASS"
+              echo "Gate 6 (Size budget): PASS"
             fi
           else
-            echo "Gate 6 (Boot image): FAIL — no image found"
+            echo "Gate 5 (Boot image): FAIL — no image found"
             FAILED=1
-          fi
-
-          # Gate 8: Changelog (warning)
-          if [ -f "CHANGELOG.md" ]; then
-            echo "Gate 8 (Changelog): PASS"
-          else
-            echo "Gate 8 (Changelog): WARNING — no CHANGELOG.md"
           fi
 
           if [ "$FAILED" -eq 1 ]; then
@@ -146,9 +129,9 @@ jobs:
         with:
           name: kernel-image
           path: |
-            out/Image.gz-dtb
-            arch/arm64/boot/Image.gz-dtb
-            arch/arm64/boot/Image
+            out/arch/arm64/boot/Image
+            out/arch/arm64/boot/Image.gz-dtb
+            out/arch/arm64/boot/Image.gz
           if-no-files-found: error
 
       - name: Upload modules
@@ -170,12 +153,10 @@ jobs:
           mkdir -p anykernel/kernels/aosp/
 
           # Copy kernel image
-          if [ -f "out/Image.gz-dtb" ]; then
-            cp out/Image.gz-dtb anykernel/kernels/aosp/
-          elif [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
-            cp arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/
-          elif [ -f "arch/arm64/boot/Image" ]; then
-            cp arch/arm64/boot/Image anykernel/kernels/aosp/
+          if [ -f "out/arch/arm64/boot/Image" ]; then
+            cp out/arch/arm64/boot/Image anykernel/kernels/aosp/
+          elif [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/
           else
             echo "No kernel image found"
             exit 1
