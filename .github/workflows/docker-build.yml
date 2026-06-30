@@ -2,9 +2,6 @@ name: Build Docker Image
 
 on:
   workflow_dispatch:
-permissions:
-  packages: write
-
 
 jobs:
   build:
@@ -13,9 +10,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build container image
-        run: docker build -t ghcr.io/raz123/kernel-builder:latest .
-      - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: docker build -t kernel-builder .
 
-      - name: Push to GHCR
-        run: docker push ghcr.io/raz123/kernel-builder:latest
+      - name: Verify image
+        run: docker run --rm kernel-builder clang --version

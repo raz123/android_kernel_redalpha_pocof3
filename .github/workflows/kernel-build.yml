@@ -12,19 +12,20 @@ on:
 jobs:
   build:
     runs-on: self-hosted
-    container:
-      image: ghcr.io/raz123/kernel-builder:latest
     steps:
       - uses: actions/checkout@v4
 
+      - name: Build Docker image
+        run: docker build -t kernel-builder .
+
       - name: Build kernel
         run: |
-          chmod +x build-kernel.sh
-          if [ "${{ inputs.ksu }}" == "true" ]; then
-            KSU=1 bash build-kernel.sh
-          else
-            KSU=0 bash build-kernel.sh
-          fi
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e KSU=${{ inputs.ksu && '1' || '0' }} \
+            kernel-builder \
+            bash -c "chmod +x build-kernel.sh && KSU=\$KSU bash build-kernel.sh"
 
       - name: QA Gates
         run: |
