@@ -18,12 +18,12 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
-      - name: Clean previous build artifacts
-        run: sudo rm -rf ${{ github.workspace }}/build || true
+      - name: Clean entire workspace
+        run: |
+          cd ${{ github.workspace }}
+          sudo rm -rf ./* || true
 
       - uses: actions/checkout@v4
-        with:
-          clean: false
 
       - name: Build Docker image
         run: docker build -t kernel-builder .
