@@ -11,6 +11,8 @@ jobs:
 
       - name: Build container image
         run: docker build -t ghcr.io/raz123/kernel-builder:latest .
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Push to GHCR
         run: docker push ghcr.io/raz123/kernel-builder:latest
