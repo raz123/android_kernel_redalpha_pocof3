@@ -15,11 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fix permissions on previous Docker artifacts
-        run: |
-          # Docker creates root-owned files; fix them so checkout/next steps work
-          find . -exec chown $(id -u):$(id -g) {} + 2>/dev/null || true
-
       - name: Build Docker image
         run: docker build -t kernel-builder .
 
