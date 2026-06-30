@@ -1,0 +1,16 @@
+name: Build Docker Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build container image
+        run: docker build -t ghcr.io/raz123/kernel-builder:latest .
+
+      - name: Push to GHCR
+        run: docker push ghcr.io/raz123/kernel-builder:latest

@@ -1,0 +1,146 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu:
+        description: 'Enable ReSukiSU (KernelSU)'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: self-hosted
+    container:
+      image: ghcr.io/raz123/kernel-builder:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build kernel
+        run: |
+          chmod +x build-kernel.sh
+          if [ "${{ inputs.ksu }}" == "true" ]; then
+            KSU=1 bash build-kernel.sh
+          else
+            KSU=0 bash build-kernel.sh
+          fi
+
+      - name: QA Gates
+        run: |
+          echo "=== QA Gates ==="
+          FAILED=0
+
+          # Gates 0-1: KSU-only, skip when ksu=false
+          if [ "${{ inputs.ksu }}" == "true" ]; then
+            # Gate 0: SuSFS
+            if grep -rq "CONFIG_KSU_SUSFS\|ksu_susfs\|susfs_" drivers/kernelsu/ 2>/dev/null; then
+              echo "Gate 0 (SuSFS): PASS"
+            else
+              echo "Gate 0 (SuSFS): FAIL — no SuSFS symbols found"
+              FAILED=1
+            fi
+
+            # Gate 1: Hook mode
+            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" .config 2>/dev/null; then
+              echo "Gate 1 (Hook mode): PASS"
+            else
+              echo "Gate 1 (Hook mode): FAIL — CONFIG_KSU_MANUAL_HOOK not set"
+              FAILED=1
+            fi
+          else
+            echo "Gate 0 (SuSFS): SKIPPED (vanilla build)"
+            echo "Gate 1 (Hook mode): SKIPPED (vanilla build)"
+          fi
+
+          # Gate 2: KALLSYMS
+          if grep -q "CONFIG_KALLSYMS=y" .config && grep -q "CONFIG_KALLSYMS_ALL=y" .config; then
+            echo "Gate 2 (KALLSYMS): PASS"
+          else
+            echo "Gate 2 (KALLSYMS): FAIL"
+            FAILED=1
+          fi
+
+          # Gate 3: SELinux
+          if grep -q "CONFIG_SECURITY_SELINUX=y" .config; then
+            echo "Gate 3 (SELinux): PASS"
+          else
+            echo "Gate 3 (SELinux): FAIL"
+            FAILED=1
+          fi
+
+          # Gate 4: Binder
+          if grep -q "CONFIG_ANDROID_BINDER" .config; then
+            echo "Gate 4 (Binder): PASS"
+          else
+            echo "Gate 4 (Binder): FAIL"
+            FAILED=1
+          fi
+
+          # Gate 5: DTBO
+          if [ -n "$(find arch/arm64/boot/dts/vendor/qcom/ -name '*.dts' -exec grep -li 'dtbo' {} + 2>/dev/null)" ]; then
+            echo "Gate 5 (DTBO): FAIL — dtbo references found"
+            FAILED=1
+          else
+            echo "Gate 5 (DTBO): PASS"
+          fi
+
+          # Gate 6: Boot image size
+          IMAGE_FILE=""
+          if [ -f "out/Image.gz-dtb" ]; then
+            IMAGE_FILE="out/Image.gz-dtb"
+          elif [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
+            IMAGE_FILE="arch/arm64/boot/Image.gz-dtb"
+          elif [ -f "arch/arm64/boot/Image" ]; then
+            IMAGE_FILE="arch/arm64/boot/Image"
+          fi
+
+          if [ -n "$IMAGE_FILE" ]; then
+            SIZE=$(stat -c%s "$IMAGE_FILE" 2>/dev/null || stat -f%z "$IMAGE_FILE" 2>/dev/null)
+            if [ "$SIZE" -gt 15728640 ]; then
+              echo "Gate 6 (Boot image >15MB): PASS (${SIZE} bytes)"
+            else
+              echo "Gate 6 (Boot image >15MB): FAIL (${SIZE} bytes < 15728640)"
+              FAILED=1
+            fi
+
+            # Gate 7: Size budget (warning)
+            if [ "$SIZE" -gt 26214400 ]; then
+              echo "Gate 7 (Size budget >25MB): WARNING (${SIZE} bytes)"
+            else
+              echo "Gate 7 (Size budget): PASS"
+            fi
+          else
+            echo "Gate 6 (Boot image): FAIL — no image found"
+            FAILED=1
+          fi
+
+          # Gate 8: Changelog (warning)
+          if [ -f "CHANGELOG.md" ]; then
+            echo "Gate 8 (Changelog): PASS"
+          else
+            echo "Gate 8 (Changelog): WARNING — no CHANGELOG.md"
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "=== QA GATES FAILED ==="
+            exit 1
+          fi
+          echo "=== QA GATES PASSED ==="
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: |
+            out/Image.gz-dtb
+            arch/arm64/boot/Image.gz-dtb
+            arch/arm64/boot/Image
+          if-no-files-found: error
+
+      - name: Upload modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-modules
+          path: out/modules/
+          if-no-files-found: ignore

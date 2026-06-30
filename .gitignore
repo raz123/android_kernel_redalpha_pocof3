@@ -84,6 +84,8 @@ modules.builtin
 !.mailmap
 !.cocciconfig
 !.clang-format
+!.github/
+!.planning/
 
 #
 # Generated include files
@@ -135,3 +137,7 @@ all.config
 kernel/configs/android-*.cfg
 
 out/
+toolchain/
+KernelSU/
+anykernel/
+
