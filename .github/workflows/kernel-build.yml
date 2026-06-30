@@ -8,6 +8,14 @@ on:
         required: true
         type: boolean
         default: true
+      release:
+        description: 'Create GitHub Release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -149,3 +157,74 @@ jobs:
           name: kernel-modules
           path: out/modules/
           if-no-files-found: ignore
+
+      - name: Package AnyKernel3 ZIP
+        run: |
+          GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
+          KSU_SUFFIX="_ReSukiSU"
+          if [ "${{ inputs.ksu }}" != "true" ]; then
+            KSU_SUFFIX="_vanilla"
+          fi
+
+          git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
+          mkdir -p anykernel/kernels/aosp/
+
+          # Copy kernel image
+          if [ -f "out/Image.gz-dtb" ]; then
+            cp out/Image.gz-dtb anykernel/kernels/aosp/
+          elif [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
+            cp arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/
+          elif [ -f "arch/arm64/boot/Image" ]; then
+            cp arch/arm64/boot/Image anykernel/kernels/aosp/
+          else
+            echo "No kernel image found"
+            exit 1
+          fi
+
+          # Copy modules if present
+          if [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ]; then
+            mkdir -p anykernel/anykernel-modules/
+            cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
+          fi
+
+          cd anykernel
+          ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip"
+          zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
+          mv "$ZIP_FILENAME" ../
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: anykernel3-zip
+          path: "*.zip"
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: inputs.release == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BUILD_DATE=$(date +'%Y%m%d')
+          TAG_NAME="v${BUILD_DATE}-$(git rev-parse --short=7 HEAD)"
+          KSU_LABEL="ReSukiSU"
+          if [ "${{ inputs.ksu }}" != "true" ]; then
+            KSU_LABEL="Vanilla"
+          fi
+
+          ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found"
+            exit 1
+          fi
+
+          gh release create "$TAG_NAME" "$ZIP_FILE" \
+            --repo ${{ github.repository }} \
+            --title "RedAlpha PocoF3 ${KSU_LABEL} - ${BUILD_DATE}" \
+            --notes "## RedAlpha Kernel Build
+
+- **Date:** ${BUILD_DATE}
+- **Device:** Poco F3 (alioth/SM8250)
+- **Kernel:** 4.19.325
+- **Variant:** ${KSU_LABEL}
+
+Flash via TWRP. Wipe cache/dalvik recommended."
