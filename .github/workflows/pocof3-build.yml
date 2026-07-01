@@ -112,8 +112,28 @@ jobs:
 
       - name: Package AnyKernel3 ZIP
         run: |
+          # Create A/B slot fix script on host (avoids quoting hell in bash -c)
+          cat > /tmp/fix_slot.py << 'PYEOF'
+import sys
+lines = open('anykernel/anykernel.sh').readlines()
+out = []
+for line in lines:
+    if '. tools/ak3-core.sh;' in line:
+        out.append('# === A/B SLOT FIX ===\n')
+        out.append('# Detect active boot slot and target it directly (runs on device)\n')
+        out.append("ACTIVE_SLOT=$(grep -o 'androidboot.slot_suffix=._.' /proc/cmdline 2>/dev/null | cut -d= -f2)\n")
+        out.append('[ -z "$ACTIVE_SLOT" ] && ACTIVE_SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null)\n')
+        out.append('[ -n "$ACTIVE_SLOT" ] && BLOCK="/dev/block/by-name/boot${ACTIVE_SLOT}"\n')
+        out.append('# === END A/B SLOT FIX ===\n')
+        out.append('\n')
+    out.append(line)
+open('anykernel/anykernel.sh', 'w').writelines(out)
+print('A/B slot fix inserted into anykernel.sh')
+PYEOF
+          # Run packaging in Docker
           docker run --rm \
             -v ${{ github.workspace }}/build:/workspace \
+            -v /tmp/fix_slot.py:/tmp/fix_slot.py:ro \
             -w /workspace \
             kernel-builder \
             bash -c '
@@ -121,18 +141,8 @@ jobs:
               KSU_SUFFIX="_ReSukiSU"
               [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
               git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
-              # === A/B SLOT FIX ===
-              # TWRP may create /postinstall/tmp causing AnyKernel3 to flip boot slots
-              # Detect active slot and patch anykernel.sh to target correct partition
-              ACTIVE_SLOT=$(grep -o 'androidboot.slot_suffix=._.' /proc/cmdline 2>/dev/null | cut -d= -f2)
-              [ -z "$ACTIVE_SLOT" ] && ACTIVE_SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null)
-              if [ -n "$ACTIVE_SLOT" ]; then
-                echo "A/B Slot Fix: detected slot $ACTIVE_SLOT, patching anykernel.sh"
-                sed -i "s|BLOCK=boot;|BLOCK=/dev/block/by-name/boot${ACTIVE_SLOT};|" anykernel/anykernel.sh
-              else
-                echo "A/B Slot Fix: no slot suffix detected, keeping default"
-              fi
-              # === END A/B SLOT FIX ===
+              # Apply A/B slot fix (script mounted from host)
+              python3 /tmp/fix_slot.py
               mkdir -p anykernel/kernels/aosp/
               # Copy kernel image (prefer Image.gz-dtb which has DTB appended)
               if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
