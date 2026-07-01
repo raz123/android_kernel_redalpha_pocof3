@@ -287,7 +287,7 @@ static int adm_get_copp_id(int port_idx, int copp_idx)
 
 static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 				 int rate, int bit_width, int app_type,
-				 int session_type, int channel_mode)
+				 int session_type)
 {
 	int idx;
 
@@ -305,9 +305,7 @@ static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 			atomic_read(
 				&this_adm.copp.session_type[port_idx][idx])) &&
 		    (app_type ==
-			atomic_read(&this_adm.copp.app_type[port_idx][idx])) &&
-		    (channel_mode ==
-			atomic_read(&this_adm.copp.channels[port_idx][idx])))
+			atomic_read(&this_adm.copp.app_type[port_idx][idx])))
 			return idx;
 	return -EINVAL;
 }
@@ -1681,11 +1679,15 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 		if (data->opcode == APR_BASIC_RSP_RESULT) {
 			pr_debug("%s: APR_BASIC_RSP_RESULT id 0x%x\n",
 				__func__, payload[0]);
-			if (data->payload_size <
-					(2 * sizeof(uint32_t))) {
-				pr_err("%s: Invalid payload size %d\n",
-					__func__, data->payload_size);
-				return 0;
+			if (!((client_id != ADM_CLIENT_ID_SOURCE_TRACKING) &&
+			     ((payload[0] == ADM_CMD_SET_PP_PARAMS_V5) ||
+			      (payload[0] == ADM_CMD_SET_PP_PARAMS_V6)))) {
+				if (data->payload_size <
+						(2 * sizeof(uint32_t))) {
+					pr_err("%s: Invalid payload size %d\n",
+						__func__, data->payload_size);
+					return 0;
+				}
 			}
 
 			if (payload[1] != 0) {
@@ -3227,8 +3229,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		copp_idx = adm_get_idx_if_copp_exists(port_idx, topology,
 						      perf_mode,
 						      rate, bit_width,
-						      app_type, session_type,
-						      channel_mode);
+						      app_type, session_type);
 
 	if (copp_idx < 0) {
 		copp_idx = adm_get_next_available_copp(port_idx);
