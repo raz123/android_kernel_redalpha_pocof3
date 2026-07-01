@@ -141,7 +141,7 @@ jobs:
           fi
           [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
           cd anykernel
-          ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
+          ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +%Y%m%d_%H%M%S)_anykernel3_${GIT_COMMIT_ID}.zip"
           zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
           mv "$ZIP_FILENAME" ../
           ENDSCRIPT
