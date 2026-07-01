@@ -115,6 +115,7 @@ jobs:
           cat > /tmp/package_kernel.sh << 'ENDSCRIPT'
           #!/bin/bash
           set -ex
+          git config --global --add safe.directory /workspace
           GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
           KSU_SUFFIX="_ReSukiSU"
           [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
