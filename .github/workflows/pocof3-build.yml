@@ -123,10 +123,15 @@ jobs:
               git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
               # === A/B SLOT FIX ===
               # TWRP may create /postinstall/tmp causing AnyKernel3 to flip boot slots
-              # Detect active slot explicitly and target it directly
+              # Detect active slot and patch anykernel.sh to target correct partition
               ACTIVE_SLOT=$(grep -o 'androidboot.slot_suffix=._.' /proc/cmdline 2>/dev/null | cut -d= -f2)
               [ -z "$ACTIVE_SLOT" ] && ACTIVE_SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null)
-              [ -n "$ACTIVE_SLOT" ] && BLOCK="/dev/block/by-name/boot${ACTIVE_SLOT}"
+              if [ -n "$ACTIVE_SLOT" ]; then
+                echo "A/B Slot Fix: detected slot $ACTIVE_SLOT, patching anykernel.sh"
+                sed -i "s|BLOCK=boot;|BLOCK=/dev/block/by-name/boot${ACTIVE_SLOT};|" anykernel/anykernel.sh
+              else
+                echo "A/B Slot Fix: no slot suffix detected, keeping default"
+              fi
               # === END A/B SLOT FIX ===
               mkdir -p anykernel/kernels/aosp/
               # Copy kernel image (prefer Image.gz-dtb which has DTB appended)
