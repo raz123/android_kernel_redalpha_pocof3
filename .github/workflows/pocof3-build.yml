@@ -102,24 +102,27 @@ jobs:
           path: build/out/modules/
           if-no-files-found: ignore
 
-      - name: Install packaging tools
-        run: sudo pacman -S --noconfirm zip || sudo apt-get install -y zip
       - name: Package AnyKernel3 ZIP
-        working-directory: build
         run: |
-          GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
-          KSU_SUFFIX="_ReSukiSU"
-          [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
-          git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
-          mkdir -p anykernel/kernels/aosp/
-          for f in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz-dtb; do
-            [ -f "$f" ] && cp "$f" anykernel/kernels/aosp/ && break
-          done
-          [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
-          cd anykernel
-          ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'%Y%m%d_%H%M%S')_anykernel3_${GIT_COMMIT_ID}.zip"
-          zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
-          mv "$ZIP_FILENAME" ../
+          docker run --rm \
+            -v ${{ github.workspace }}/build:/workspace \
+            -w /workspace \
+            kernel-builder \
+            bash -c '
+              GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
+              KSU_SUFFIX="_ReSukiSU"
+              [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
+              git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
+              mkdir -p anykernel/kernels/aosp/
+              for f in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz-dtb; do
+                [ -f "$f" ] && cp "$f" anykernel/kernels/aosp/ && break
+              done
+              [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
+              cd anykernel
+              ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
+              zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
+              mv "$ZIP_FILENAME" ../
+            '
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
