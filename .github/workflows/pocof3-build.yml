@@ -114,9 +114,25 @@ jobs:
               [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
               git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
               mkdir -p anykernel/kernels/aosp/
-              for f in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz-dtb; do
-                [ -f "$f" ] && cp "$f" anykernel/kernels/aosp/ && break
+              # Copy kernel image (prefer Image.gz-dtb which has DTB appended)
+              if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+                cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
+              elif [ -f out/arch/arm64/boot/Image ]; then
+                cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
+              fi
+              # Copy DTB if available
+              for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
+                [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
               done
+              # Copy DTBO if available
+              [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
+              # If dtb or dtbo.img missing, patch anykernel.sh to not require them
+              if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
+                sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
+                sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
+                sed -i "/dtbo.img/d" anykernel/anykernel.sh
+              fi
+              # Copy modules
               [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
               cd anykernel
               ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
