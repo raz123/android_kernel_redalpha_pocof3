@@ -1,0 +1,177 @@
+name: PocoF3 Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu:
+        description: 'Enable ReSukiSU (KernelSU)'
+        required: true
+        type: boolean
+        default: true
+      release:
+        description: 'Create GitHub Release'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - name: Clone repo (bypass checkout action)
+        run: |
+          sudo rm -rf ${{ github.workspace }}/build || true
+          git clone --depth=1 https://github.com/${{ github.repository }}.git -b ${{ github.ref_name }} ${{ github.workspace }}/build
+
+      - name: Build Docker image
+        working-directory: build
+        run: docker build -t kernel-builder .
+
+      - name: Build kernel
+        run: |
+          mkdir -p /tmp/ccache-cache
+          docker run --rm \
+            -v ${{ github.workspace }}/build:/workspace \
+            -v /tmp/ccache-cache:/root/.ccache \
+            -w /workspace \
+            -e KSU=${{ inputs.ksu && '1' || '0' }} \
+            -e KBUILD_BUILD_TIMESTAMP='' \
+            kernel-builder \
+            bash -c "chmod +x build-kernel.sh && KSU=\$KSU bash build-kernel.sh"
+
+      - name: Fix file permissions
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/build || true
+
+      - name: QA Gates
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/build:/workspace \
+            -w /workspace \
+            kernel-builder \
+            bash -c '
+              echo "=== QA Gates ==="
+              FAILED=0
+              if [ "${{ inputs.ksu }}" == "true" ]; then
+                if grep -q "CONFIG_KSU=y" out/.config 2>/dev/null; then
+                  echo "Gate 0 (KSU): PASS"
+                else
+                  echo "Gate 0 (KSU): FAIL"; FAILED=1
+                fi
+                if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
+                  echo "Gate 1 (Hook mode): PASS"
+                else
+                  echo "Gate 1 (Hook mode): WARN"
+                fi
+              else
+                echo "Gate 0-1: SKIPPED (vanilla)"
+              fi
+              for gate in "KALLSYMS:CONFIG_KALLSYMS=y" "SELinux:CONFIG_SECURITY_SELINUX=y"; do
+                NAME="${gate%%:*}"; CFG="${gate##*:}"
+                if grep -q "$CFG" out/.config 2>/dev/null; then
+                  echo "Gate ($NAME): PASS"
+                else
+                  echo "Gate ($NAME): FAIL"; FAILED=1
+                fi
+              done
+              if grep -q "CONFIG_ANDROID_BINDER" out/.config 2>/dev/null; then
+                echo "Gate (Binder): PASS"
+              else
+                echo "Gate (Binder): FAIL"; FAILED=1
+              fi
+              IMAGE=""
+              for f in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz-dtb; do
+                [ -f "$f" ] && IMAGE="$f" && break
+              done
+              if [ -n "$IMAGE" ]; then
+                SIZE=$(stat -c%s "$IMAGE" 2>/dev/null)
+                [ "$SIZE" -gt 15728640 ] && echo "Gate (Size): PASS ($SIZE)" || { echo "Gate (Size): FAIL ($SIZE)"; FAILED=1; }
+              else
+                echo "Gate (Image): FAIL"; FAILED=1
+              fi
+              [ "$FAILED" -eq 1 ] && { echo "=== QA GATES FAILED ==="; exit 1; }
+              echo "=== QA GATES PASSED ==="
+            '
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: |
+            build/out/arch/arm64/boot/Image
+            build/out/arch/arm64/boot/Image.gz-dtb
+            build/out/arch/arm64/boot/Image.gz
+          if-no-files-found: error
+
+      - name: Upload modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-modules
+          path: build/out/modules/
+          if-no-files-found: ignore
+
+      - name: Package AnyKernel3 ZIP
+        run: |
+          cat > /tmp/package_kernel.sh << 'ENDSCRIPT'
+          #!/bin/bash
+          set -ex
+          git config --global --add safe.directory /workspace
+          GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
+          KSU_SUFFIX="_ReSukiSU"
+          [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
+          git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
+          # === A/B SLOT FIX ===
+          sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
+          sed -i 's|BLOCK=boot;|BLOCK=/dev/block/by-name/boot_b;|' anykernel/anykernel.sh
+          # === END A/B SLOT FIX ===
+          mkdir -p anykernel/kernels/aosp/
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
+          fi
+          for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
+            [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
+          done
+          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
+          if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
+            sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
+            sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
+            sed -i "/dtbo.img/d" anykernel/anykernel.sh
+          fi
+          [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
+          cd anykernel
+          ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +%Y%m%d_%H%M%S)_anykernel3_${GIT_COMMIT_ID}.zip"
+          zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
+          mv "$ZIP_FILENAME" ../
+          ENDSCRIPT
+          docker run --rm \
+            -v ${{ github.workspace }}/build:/workspace \
+            -v /tmp/package_kernel.sh:/tmp/package_kernel.sh:ro \
+            -w /workspace \
+            kernel-builder \
+            bash /tmp/package_kernel.sh
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: anykernel3-zip
+          path: build/*.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: inputs.release == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: build
+        run: |
+          BUILD_DATE=$(date +'%Y%m%d')
+          TAG_NAME="v${BUILD_DATE}-$(git rev-parse --short=7 HEAD)"
+          KSU_LABEL="ReSukiSU"
+          [ "${{ inputs.ksu }}" != "true" ] && KSU_LABEL="Vanilla"
+          ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
+          [ -z "$ZIP_FILE" ] && { echo "No ZIP"; exit 1; }
+          gh release create "$TAG_NAME" "$ZIP_FILE" \
+            --repo ${{ github.repository }} \
+            --title "RedAlpha PocoF3 ${KSU_LABEL} - ${BUILD_DATE}" \
+            --notes "## RedAlpha Kernel Build\n\n- **Date:** ${BUILD_DATE}\n- **Device:** Poco F3 (alioth/SM8250)\n- **Kernel:** 4.19.325\n- **Variant:** ${KSU_LABEL}\n\nFlash via TWRP."
