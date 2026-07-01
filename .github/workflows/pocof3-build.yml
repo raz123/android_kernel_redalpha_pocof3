@@ -113,41 +113,37 @@ jobs:
       - name: Package AnyKernel3 ZIP
         run: |
           cat > /tmp/package_kernel.sh << 'ENDSCRIPT'
-#!/bin/bash
-set -ex
-GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
-KSU_SUFFIX="_ReSukiSU"
-[ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
-git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
-# === A/B SLOT FIX ===
-# Inject slot detection into anykernel.sh so it runs on the DEVICE at flash time.
-# TWRP creates /postinstall/tmp which causes AnyKernel3 to flip slots.
-# By setting SLOT_SELECT=active, we prevent the flip.
-sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
-# Also hardcode BLOCK to the known active partition as a safety net
-sed -i 's|BLOCK=boot;|BLOCK=/dev/block/by-name/boot_b;|' anykernel/anykernel.sh
-# === END A/B SLOT FIX ===
-mkdir -p anykernel/kernels/aosp/
-if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-  cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
-elif [ -f out/arch/arm64/boot/Image ]; then
-  cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
-fi
-for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
-  [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
-done
-[ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
-if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
-  sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
-  sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
-  sed -i "/dtbo.img/d" anykernel/anykernel.sh
-fi
-[ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
-cd anykernel
-ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
-zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
-mv "$ZIP_FILENAME" ../
-ENDSCRIPT
+          #!/bin/bash
+          set -ex
+          GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
+          KSU_SUFFIX="_ReSukiSU"
+          [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
+          git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
+          # === A/B SLOT FIX ===
+          sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
+          sed -i 's|BLOCK=boot;|BLOCK=/dev/block/by-name/boot_b;|' anykernel/anykernel.sh
+          # === END A/B SLOT FIX ===
+          mkdir -p anykernel/kernels/aosp/
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
+          fi
+          for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
+            [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
+          done
+          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
+          if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
+            sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
+            sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
+            sed -i "/dtbo.img/d" anykernel/anykernel.sh
+          fi
+          [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
+          cd anykernel
+          ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
+          zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
+          mv "$ZIP_FILENAME" ../
+          ENDSCRIPT
           docker run --rm \
             -v ${{ github.workspace }}/build:/workspace \
             -v /tmp/package_kernel.sh:/tmp/package_kernel.sh:ro \
