@@ -72,16 +72,7 @@ if [ "$KSU" = "1" ]; then
         --enable LTO_NONE \
         --enable KSU \
         --enable THREAD_INFO_IN_TASK \
-        --enable KSU_SUSFS \
-        --enable KSU_SUSFS_SUS_PATH \
-        --enable KSU_SUSFS_SUS_MOUNT \
-        --enable KSU_SUSFS_SUS_KSTAT \
-        --enable KSU_SUSFS_SPOOF_UNAME \
-        --enable KSU_SUSFS_ENABLE_LOG \
-        --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-        --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-        --enable KSU_SUSFS_OPEN_REDIRECT \
-        --enable KSU_SUSFS_SUS_MAP \
+        --enable KSU_MANUAL_HOOK \
         --enable KSU_MULTI_MANAGER_SUPPORT \
         --disable KPM
 fi
