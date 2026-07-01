@@ -54,6 +54,10 @@ rm -rf out/
 # Build
 make $MAKE_ARGS ${DEVICE}_defconfig
 
+# Apply additional configs matching AstideLabs
+scripts/config --file out/.config -e BBG
+scripts/config --file out/.config -e REKERNEL -e REKERNEL_NETWORK
+
 if [ "$KSU" = "1" ]; then
     scripts/config --file out/.config \
         --disable LTO_CLANG \
@@ -63,6 +67,10 @@ if [ "$KSU" = "1" ]; then
 fi
 
 make $MAKE_ARGS -j$(nproc)
+
+# Generate combined DTB (concatenate all individual DTBs)
+echo "Generating out/arch/arm64/boot/dtb......"
+find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + >out/arch/arm64/boot/dtb
 
 # Collect output
 mkdir -p out/modules
