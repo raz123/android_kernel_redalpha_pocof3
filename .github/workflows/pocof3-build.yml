@@ -61,7 +61,7 @@ jobs:
                 if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
                   echo "Gate 1 (Hook mode): PASS"
                 else
-                  echo "Gate 1 (Hook mode): WARN — not found in config (may be runtime-only)"
+                  echo "Gate 1 (Hook mode): WARN"
                 fi
               else
                 echo "Gate 0-1: SKIPPED (vanilla)"
@@ -87,7 +87,7 @@ jobs:
                 SIZE=$(stat -c%s "$IMAGE" 2>/dev/null)
                 [ "$SIZE" -gt 15728640 ] && echo "Gate (Size): PASS ($SIZE)" || { echo "Gate (Size): FAIL ($SIZE)"; FAILED=1; }
               else
-                echo "Gate (Image): FAIL — no image"; FAILED=1
+                echo "Gate (Image): FAIL"; FAILED=1
               fi
               [ "$FAILED" -eq 1 ] && { echo "=== QA GATES FAILED ==="; exit 1; }
               echo "=== QA GATES PASSED ==="
@@ -112,63 +112,48 @@ jobs:
 
       - name: Package AnyKernel3 ZIP
         run: |
-          # Create A/B slot fix script on host (avoids quoting hell in bash -c)
-          cat > /tmp/fix_slot.py << 'PYEOF'
-import sys
-lines = open('anykernel/anykernel.sh').readlines()
-out = []
-for line in lines:
-    if '. tools/ak3-core.sh;' in line:
-        out.append('# === A/B SLOT FIX ===\n')
-        out.append('# Detect active boot slot and target it directly (runs on device)\n')
-        out.append("ACTIVE_SLOT=$(grep -o 'androidboot.slot_suffix=._.' /proc/cmdline 2>/dev/null | cut -d= -f2)\n")
-        out.append('[ -z "$ACTIVE_SLOT" ] && ACTIVE_SLOT=$(getprop ro.boot.slot_suffix 2>/dev/null)\n')
-        out.append('[ -n "$ACTIVE_SLOT" ] && BLOCK="/dev/block/by-name/boot${ACTIVE_SLOT}"\n')
-        out.append('# === END A/B SLOT FIX ===\n')
-        out.append('\n')
-    out.append(line)
-open('anykernel/anykernel.sh', 'w').writelines(out)
-print('A/B slot fix inserted into anykernel.sh')
-PYEOF
-          # Run packaging in Docker
+          cat > /tmp/package_kernel.sh << 'ENDSCRIPT'
+#!/bin/bash
+set -ex
+GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
+KSU_SUFFIX="_ReSukiSU"
+[ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
+git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
+# === A/B SLOT FIX ===
+# Inject slot detection into anykernel.sh so it runs on the DEVICE at flash time.
+# TWRP creates /postinstall/tmp which causes AnyKernel3 to flip slots.
+# By setting SLOT_SELECT=active, we prevent the flip.
+sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
+# Also hardcode BLOCK to the known active partition as a safety net
+sed -i 's|BLOCK=boot;|BLOCK=/dev/block/by-name/boot_b;|' anykernel/anykernel.sh
+# === END A/B SLOT FIX ===
+mkdir -p anykernel/kernels/aosp/
+if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+  cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
+elif [ -f out/arch/arm64/boot/Image ]; then
+  cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
+fi
+for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
+  [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
+done
+[ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
+if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
+  sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
+  sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
+  sed -i "/dtbo.img/d" anykernel/anykernel.sh
+fi
+[ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
+cd anykernel
+ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
+zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
+mv "$ZIP_FILENAME" ../
+ENDSCRIPT
           docker run --rm \
             -v ${{ github.workspace }}/build:/workspace \
-            -v /tmp/fix_slot.py:/tmp/fix_slot.py:ro \
+            -v /tmp/package_kernel.sh:/tmp/package_kernel.sh:ro \
             -w /workspace \
             kernel-builder \
-            bash -c '
-              GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
-              KSU_SUFFIX="_ReSukiSU"
-              [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
-              git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
-              # Apply A/B slot fix (script mounted from host)
-              python3 /tmp/fix_slot.py
-              mkdir -p anykernel/kernels/aosp/
-              # Copy kernel image (prefer Image.gz-dtb which has DTB appended)
-              if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-                cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
-              elif [ -f out/arch/arm64/boot/Image ]; then
-                cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
-              fi
-              # Copy DTB if available
-              for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
-                [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
-              done
-              # Copy DTBO if available
-              [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
-              # If dtb or dtbo.img missing, patch anykernel.sh to not require them
-              if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
-                sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
-                sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
-                sed -i "/dtbo.img/d" anykernel/anykernel.sh
-              fi
-              # Copy modules
-              [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
-              cd anykernel
-              ZIP_FILENAME="redalpha-pocof3${KSU_SUFFIX}_$(date +'"'"'%Y%m%d_%H%M%S'"'"')_anykernel3_${GIT_COMMIT_ID}.zip"
-              zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
-              mv "$ZIP_FILENAME" ../
-            '
+            bash /tmp/package_kernel.sh
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
