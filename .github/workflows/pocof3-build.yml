@@ -102,6 +102,8 @@ jobs:
           path: build/out/modules/
           if-no-files-found: ignore
 
+      - name: Install packaging tools
+        run: sudo pacman -S --noconfirm zip || sudo apt-get install -y zip
       - name: Package AnyKernel3 ZIP
         working-directory: build
         run: |
