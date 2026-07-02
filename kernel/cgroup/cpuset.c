@@ -1008,6 +1008,23 @@ static int update_cpumask(struct cpuset *cs, struct cpuset *trialcs,
 
 	cpumask_and(trialcs->cpus_allowed, trialcs->cpus_requested, cpu_active_mask);
 
+#ifdef CONFIG_CPUSET_BACKGROUND_MIN_CPUS
+	if (CONFIG_CPUSET_BACKGROUND_MIN_CPUS > 0) {
+		if (!strcmp(cs->css.cgroup->kn->name, "background")) {
+			int nr = cpumask_weight(trialcs->cpus_allowed);
+			if (nr < CONFIG_CPUSET_BACKGROUND_MIN_CPUS) {
+				int cpu;
+				for_each_cpu(cpu, cpu_active_mask) {
+					if (cpumask_weight(trialcs->cpus_allowed) >= CONFIG_CPUSET_BACKGROUND_MIN_CPUS)
+						break;
+					cpumask_set_cpu(cpu, trialcs->cpus_allowed);
+				}
+				cpumask_copy(trialcs->cpus_requested, trialcs->cpus_allowed);
+			}
+		}
+	}
+#endif
+
 	/* Nothing to do if the cpus didn't change */
 	if (cpumask_equal(cs->cpus_requested, trialcs->cpus_requested))
 		return 0;

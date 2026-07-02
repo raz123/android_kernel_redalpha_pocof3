@@ -1052,6 +1052,22 @@ config CPUSETS
 
 	  Say N if unsure.
 
+config CPUSET_BACKGROUND_MIN_CPUS
+	int "Minimum CPUs for background cpuset"
+	depends on CPUSETS
+	default 0
+	help
+	  Sets a floor on the number of CPUs in the "background" cpuset.
+	  If Android's LMK/cgroup system restricts background tasks to
+	  fewer CPUs than this, the kernel silently expands the mask to
+	  include additional low-index CPUs until the minimum is met.
+
+	  Recommended value for devices with 4 LITTLE cores (e.g. SM8250):
+	  4 — keeps background tasks off big cores but prevents 2-core
+	  starvation that causes UI jank.
+
+	  Set to 0 to disable.
+
 config PROC_PID_CPUSET
 	bool "Include legacy /proc/<pid>/cpuset file"
 	depends on CPUSETS
