@@ -100,8 +100,7 @@ fi
 
 echo "Building kernel..."
 make $MAKE_ARGS CC="ccache clang" -j${PARALLEL_JOBS:-$(nproc)}
-echo "Building KernelSU external modules..."
-make $MAKE_ARGS CC="ccache clang" M=drivers/kernelsu modules -j${PARALLEL_JOBS:-$(nproc)} || echo "WARN: KSU module build failed (non-fatal)"
+echo ""
 
 # Generate combined DTB (concatenate all individual DTBs)
 echo "Generating out/arch/arm64/boot/dtb......"
