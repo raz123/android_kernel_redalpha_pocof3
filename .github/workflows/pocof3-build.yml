@@ -184,7 +184,8 @@ jobs:
             echo "Gate (ZIP): FAIL"
             exit 1
           fi
-        - name: Set release env
+      
+      - name: Set release env
         if: inputs.release == true
         working-directory: build
         run: |
