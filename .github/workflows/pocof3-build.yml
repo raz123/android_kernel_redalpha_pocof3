@@ -14,6 +14,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: self-hosted
@@ -159,10 +162,8 @@ jobs:
           path: build/*.zip
           if-no-files-found: error
 
-      - name: Create GitHub Release
+      - name: Set release env
         if: inputs.release == true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: build
         run: |
           BUILD_DATE=$(date +'%Y%m%d')
@@ -170,8 +171,24 @@ jobs:
           KSU_LABEL="ReSukiSU"
           [ "${{ inputs.ksu }}" != "true" ] && KSU_LABEL="Vanilla"
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
-          [ -z "$ZIP_FILE" ] && { echo "No ZIP"; exit 1; }
-          gh release create "$TAG_NAME" "$ZIP_FILE" \
-            --repo ${{ github.repository }} \
-            --title "RedAlpha PocoF3 ${KSU_LABEL} - ${BUILD_DATE}" \
-            --notes "## RedAlpha Kernel Build\n\n- **Date:** ${BUILD_DATE}\n- **Device:** Poco F3 (alioth/SM8250)\n- **Kernel:** 4.19.325\n- **Variant:** ${KSU_LABEL}\n\nFlash via TWRP."
+          echo "TAG_NAME=${TAG_NAME}" >> "$GITHUB_ENV"
+          echo "KSU_LABEL=${KSU_LABEL}" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=${BUILD_DATE}" >> "$GITHUB_ENV"
+          echo "ZIP_FILE=${ZIP_FILE}" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        if: inputs.release == true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: "RedAlpha PocoF3 ${{ env.KSU_LABEL }} - ${{ env.BUILD_DATE }}"
+          body: |
+            ## RedAlpha Kernel Build
+
+            - **Date:** ${{ env.BUILD_DATE }}
+            - **Device:** Poco F3 (alioth/SM8250)
+            - **Kernel:** 4.19.325
+            - **Variant:** ${{ env.KSU_LABEL }}
+
+            Flash via TWRP.
+          files: build/${{ env.ZIP_FILE }}
