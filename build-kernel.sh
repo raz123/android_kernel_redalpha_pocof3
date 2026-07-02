@@ -59,7 +59,7 @@ fi
 rm -rf out/
 
 # Build
-make $MAKE_ARGS CC="ccache clang" ${DEVICE}_defconfig
+make $MAKE_ARGS ${DEVICE}_defconfig
 
 # Apply additional configs matching AstideLabs
 scripts/config --file out/.config -e BBG
@@ -84,7 +84,7 @@ if [ "$KSU" = "1" ]; then
     fi
 fi
 # Resolve dependency chain after config changes
-make $MAKE_ARGS CC="ccache clang" olddefconfig
+make $MAKE_ARGS olddefconfig
 # Kernel 4.19 compat: MODULE_IMPORT_NS not defined until 5.x+
 if ! grep -q "MODULE_IMPORT_NS" include/linux/module.h 2>/dev/null; then
     echo "" >> include/linux/module.h
