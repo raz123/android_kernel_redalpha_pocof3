@@ -1792,8 +1792,8 @@ static int __do_execve_file(int fd, struct filename *filename,
 	}
 orig_flow:
 #else
-	if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val))) {
-		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
+	if (unlikely(ksu_execveat_hook)) {
+		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
 	}
 #endif
 #endif
