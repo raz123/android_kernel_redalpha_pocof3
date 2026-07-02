@@ -1757,16 +1757,16 @@ static int exec_binprm(struct linux_binprm *bprm)
  * sys_execve() executes a new program.
  */
 #ifdef CONFIG_KSU
+#ifdef CONFIG_KSU_SUSFS
 extern bool ksu_execveat_hook __read_mostly;
 extern bool ksu_su_compat_enabled __read_mostly;
-#ifdef CONFIG_KSU_SUSFS
 extern bool susfs_is_sdcard_android_data_decrypted __read_mostly;
-#endif
 extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-			void *envp, int *flags);
 extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
 				void *envp, int *flags);
+#endif
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
+			void *envp, int *flags);
 #endif
 static int __do_execve_file(int fd, struct filename *filename,
 			    struct user_arg_ptr argv,
@@ -1792,9 +1792,7 @@ static int __do_execve_file(int fd, struct filename *filename,
 	}
 orig_flow:
 #else
-	if (unlikely(ksu_execveat_hook)) {
-		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-	}
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
 #endif
 #endif
 
