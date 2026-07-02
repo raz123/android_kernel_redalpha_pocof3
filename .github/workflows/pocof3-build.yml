@@ -77,7 +77,7 @@ jobs:
                   echo "Gate ($NAME): FAIL"; FAILED=1
                 fi
               done
-              if grep -Eq "CONFIG_ANDROID_BINDER=[ym]" out/.config 2>/dev/null; then
+              if grep -Eq "CONFIG_ANDROID_BINDER_IPC=[ym]" out/.config 2>/dev/null; then
                 echo "Gate (Binder): PASS"
               else
                 echo "Gate (Binder): FAIL"; FAILED=1
