@@ -81,6 +81,19 @@ config ZRAM_DEF_COMP
 	default "zstd" if ZRAM_DEF_COMP_ZSTD
 	default "zstdn" if ZRAM_DEF_COMP_ZSTDN
 
+
+config ZRAM_MIN_DISKSIZE_MB
+	int "Minimum ZRAM disksize in MB (overrides fstab if smaller)"
+	depends on ZRAM
+	default 0
+	help
+	  When non-zero, sets a floor on the ZRAM disksize. If userspace
+	  (e.g. /vendor/etc/fstab.qcom) requests a smaller size, the kernel
+	  uses this value instead. Set to 4096 for 4GB minimum ZRAM.
+
+	  This is useful when the ROM's fstab sets a conservative ZRAM size
+	  but the device has enough RAM to benefit from more compressed swap.
+
 config ZRAM_DEDUP
 	bool "Deduplication support for ZRAM data"
 	depends on ZRAM
