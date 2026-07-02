@@ -33,6 +33,8 @@ MAKE_ARGS="ARCH=arm64 \
 
 # ReSukiSU (skip when KSU=0 for vanilla builds)
 if [ "$KSU" = "1" ]; then
+    git config --global --add safe.directory /workspace/KernelSU
+    git config --global --add safe.directory /workspace
     if [ -d "KernelSU/.git" ]; then
         cd KernelSU && git fetch --depth=1 origin HEAD && git reset --hard FETCH_HEAD && cd ..
     else
