@@ -77,7 +77,7 @@ jobs:
                   echo "Gate ($NAME): FAIL"; FAILED=1
                 fi
               done
-              if grep -q "CONFIG_ANDROID_BINDER" out/.config 2>/dev/null; then
+              if grep -Eq "CONFIG_ANDROID_BINDER=[ym]" out/.config 2>/dev/null; then
                 echo "Gate (Binder): PASS"
               else
                 echo "Gate (Binder): FAIL"; FAILED=1
@@ -124,8 +124,8 @@ jobs:
           [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
           git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
           # === A/B SLOT FIX ===
+          # === A/B SLOT FIX: SLOT_SELECT=active auto-detects correct slot ===
           sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
-          sed -i 's|BLOCK=boot;|BLOCK=/dev/block/by-name/boot_b;|' anykernel/anykernel.sh
           # === END A/B SLOT FIX ===
           mkdir -p anykernel/kernels/aosp/
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
