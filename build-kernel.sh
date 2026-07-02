@@ -33,8 +33,11 @@ MAKE_ARGS="ARCH=arm64 \
 
 # ReSukiSU (skip when KSU=0 for vanilla builds)
 if [ "$KSU" = "1" ]; then
-    rm -rf KernelSU
-    git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU
+    if [ -d "KernelSU/.git" ]; then
+        cd KernelSU && git fetch --depth=1 origin HEAD && git reset --hard FETCH_HEAD && cd ..
+    else
+        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU
+    fi
     ln -sf ../KernelSU/kernel drivers/kernelsu
     # Patch ReSukiSU for MANUAL_HOOK compatibility (maps SUSFS symbol names)
     perl -i -0pe 's/(#elif defined\(CONFIG_KSU_MANUAL_HOOK\))/$1\n    \/* Compatibility: SUSFS symbol names used by fs hooks *\/\n    #define ksu_is_init_rc_hook_enabled ksu_init_rc_hook\n    #define ksu_is_input_hook_enabled ksu_input_hook/' KernelSU/kernel/runtime/ksud_integration.c
@@ -53,7 +56,9 @@ if [ "$KSU" = "1" ]; then
 fi
 
 # Clean previous build
-rm -rf out/
+if [ "${CLEAN_BUILD:-0}" = "1" ] || [ ! -f "out/Makefile" ]; then
+    rm -rf out/
+fi
 
 # Build
 make $MAKE_ARGS ${DEVICE}_defconfig
@@ -92,7 +97,7 @@ if ! grep -q "MODULE_IMPORT_NS" include/linux/module.h 2>/dev/null; then
 fi
 
 echo "Building kernel..."
-make $MAKE_ARGS CC="ccache clang" -j$(nproc)
+make $MAKE_ARGS CC="ccache clang" -j${PARALLEL_JOBS:-$(nproc)}
 
 # Generate combined DTB (concatenate all individual DTBs)
 echo "Generating out/arch/arm64/boot/dtb......"

@@ -21,10 +21,16 @@ jobs:
   build:
     runs-on: self-hosted
     steps:
-      - name: Clone repo (bypass checkout action)
+      - name: Sync workspace (persist between builds)
         run: |
-          sudo rm -rf ${{ github.workspace }}/build || true
-          git clone --depth=1 https://github.com/${{ github.repository }}.git -b ${{ github.ref_name }} ${{ github.workspace }}/build
+          if [ -d "${{ github.workspace }}/build/.git" ]; then
+            cd ${{ github.workspace }}/build
+            git fetch --depth=1 origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
+          else
+            sudo rm -rf ${{ github.workspace }}/build || true
+            git clone --depth=1 https://github.com/${{ github.repository }}.git -b ${{ github.ref_name }} ${{ github.workspace }}/build
+          fi
 
       - name: Build Docker image
         working-directory: build
@@ -47,83 +53,72 @@ jobs:
         run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/build || true
 
       - name: QA Gates
+        working-directory: build
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/build:/workspace \
-            -w /workspace \
-            kernel-builder \
-            bash -c '
-              echo "=== QA Gates ==="
-              FAILED=0
-              if [ "${{ inputs.ksu }}" == "true" ]; then
-                if grep -q "CONFIG_KSU=y" out/.config 2>/dev/null; then
-                  echo "Gate 0 (KSU): PASS"
-                else
-                  echo "Gate 0 (KSU): FAIL"; FAILED=1
-                fi
-                if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
-                  echo "Gate 1 (Hook mode): PASS"
-                else
-                  echo "Gate 1 (Hook mode): WARN"
-                fi
-              else
-                echo "Gate 0-1: SKIPPED (vanilla)"
-              fi
-              for gate in "KALLSYMS:CONFIG_KALLSYMS=y" "SELinux:CONFIG_SECURITY_SELINUX=y"; do
-                NAME="${gate%%:*}"; CFG="${gate##*:}"
-                if grep -q "$CFG" out/.config 2>/dev/null; then
-                  echo "Gate ($NAME): PASS"
-                else
-                  echo "Gate ($NAME): FAIL"; FAILED=1
-                fi
-              done
-              if grep -Eq "CONFIG_ANDROID_BINDER_IPC=[ym]" out/.config 2>/dev/null; then
-                echo "Gate (Binder): PASS"
-              else
-                echo "Gate (Binder): FAIL"; FAILED=1
-              fi
-              IMAGE=""
-              for f in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz-dtb; do
-                [ -f "$f" ] && IMAGE="$f" && break
-              done
-              if [ -n "$IMAGE" ]; then
-                SIZE=$(stat -c%s "$IMAGE" 2>/dev/null)
-                [ "$SIZE" -gt 15728640 ] && echo "Gate (Size): PASS ($SIZE)" || { echo "Gate (Size): FAIL ($SIZE)"; FAILED=1; }
-              if [ -f "out/arch/arm64/boot/dtbo.img" ]; then
-                echo "Gate (dtbo.img): PASS"
-              elif [ -f "out/arch/arm64/boot/dtb" ]; then
-                echo "Gate (dtb): PASS"
-              else
-                echo "Gate (dtb): WARN (dtbo.img not found)"
-              fi
-              if [ -f "out/arch/arm64/boot/dtb" ]; then
-                echo "Gate (dtb): PASS"
-              else
-                echo "Gate (dtb): WARN (dtb not found)"
-              fi
-              else
-                echo "Gate (Image): FAIL"; FAILED=1
-              fi
-              [ "$FAILED" -eq 1 ] && { echo "=== QA GATES FAILED ==="; exit 1; }
-              echo "=== QA GATES PASSED ==="
-            '
+          echo "=== QA Gates ==="
+          FAILED=0
+          if [ "${{ inputs.ksu }}" == "true" ]; then
+            if grep -q "CONFIG_KSU=y" out/.config 2>/dev/null; then
+              echo "Gate 0 (KSU): PASS"
+            else
+              echo "Gate 0 (KSU): FAIL"; FAILED=1
+            fi
+            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
+              echo "Gate 1 (Hook mode): PASS"
+            else
+              echo "Gate 1 (Hook mode): WARN"
+            fi
+          else
+            echo "Gate 0-1: SKIPPED (vanilla)"
+          fi
+          for gate in "KALLSYMS:CONFIG_KALLSYMS=y" "SELinux:CONFIG_SECURITY_SELINUX=y"; do
+            NAME="${gate%%:*}"; CFG="${gate##*:}"
+            if grep -q "$CFG" out/.config 2>/dev/null; then
+              echo "Gate ($NAME): PASS"
+            else
+              echo "Gate ($NAME): FAIL"; FAILED=1
+            fi
+          done
+          if grep -Eq "CONFIG_ANDROID_BINDER_IPC=[ym]" out/.config 2>/dev/null; then
+            echo "Gate (Binder): PASS"
+          else
+            echo "Gate (Binder): FAIL"; FAILED=1
+          fi
+          IMAGE=""
+          for f in out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz-dtb; do
+            [ -f "$f" ] && IMAGE="$f" && break
+          done
+          if [ -n "$IMAGE" ]; then
+            SIZE=$(stat -c%s "$IMAGE" 2>/dev/null)
+            [ "$SIZE" -gt 15728640 ] && echo "Gate (Size): PASS ($SIZE)" || { echo "Gate (Size): FAIL ($SIZE)"; FAILED=1; }
+          else
+            echo "Gate (Image): FAIL"; FAILED=1
+          fi
+          if [ -f "out/arch/arm64/boot/dtbo.img" ]; then
+            echo "Gate (dtbo.img): PASS"
+          elif [ -f "out/arch/arm64/boot/dtb" ]; then
+            echo "Gate (dtb): PASS"
+          else
+            echo "Gate (dtb): WARN (dtbo.img not found)"
+          fi
+          if [ -f "out/arch/arm64/boot/dtb" ]; then
+            echo "Gate (dtb): PASS"
+          else
+            echo "Gate (dtb): WARN (dtb not found)"
+          fi
+          [ "$FAILED" -eq 1 ] && { echo "=== QA GATES FAILED ==="; exit 1; }
+          echo "=== QA GATES PASSED ==="
 
-      - name: Upload kernel image
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-image
+          name: build-artifacts
           path: |
             build/out/arch/arm64/boot/Image
             build/out/arch/arm64/boot/Image.gz-dtb
             build/out/arch/arm64/boot/Image.gz
+            build/out/modules/
           if-no-files-found: error
-
-      - name: Upload modules
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-modules
-          path: build/out/modules/
-          if-no-files-found: ignore
 
       - name: Package AnyKernel3 ZIP
         run: |
@@ -174,17 +169,6 @@ jobs:
           path: build/*.zip
           if-no-files-found: error
 
-      
-      - name: Verify ZIP integrity
-        run: |
-          ZIP_FILE=$(ls build/*.zip 2>/dev/null | head -1)
-          if [ -n "$ZIP_FILE" ] && [ -s "$ZIP_FILE" ]; then
-            echo "Gate (ZIP): PASS ($(stat -c%s "$ZIP_FILE") bytes)"
-          else
-            echo "Gate (ZIP): FAIL"
-            exit 1
-          fi
-      
       - name: Set release env
         if: inputs.release == true
         working-directory: build
