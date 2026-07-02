@@ -67,14 +67,21 @@ scripts/config --file out/.config -e REKERNEL -e REKERNEL_NETWORK
 # Disable IKHEADERS (kheaders_data.tar.xz causes Error 127)
 scripts/config --file out/.config --disable IKHEADERS
 if [ "$KSU" = "1" ]; then
-    scripts/config --file out/.config \
-        --disable LTO_CLANG \
-        --enable LTO_NONE \
-        --enable KSU \
-        --enable THREAD_INFO_IN_TASK \
-        --enable KSU_MANUAL_HOOK \
-        --enable KSU_MULTI_MANAGER_SUPPORT \
-        --disable KPM
+    # Check if defconfig already has KSU enabled (main branch has it built-in)
+    if grep -q "CONFIG_KSU=y" arch/arm64/configs/${DEVICE}_defconfig 2>/dev/null; then
+        echo "Defconfig already has KSU enabled, skipping KSU config overrides"
+        # Only disable LTO (KSU requires it)
+        scripts/config --file out/.config --disable LTO_CLANG --enable LTO_NONE
+    else
+        scripts/config --file out/.config \
+            --disable LTO_CLANG \
+            --enable LTO_NONE \
+            --enable KSU \
+            --enable THREAD_INFO_IN_TASK \
+            --enable KSU_MANUAL_HOOK \
+            --enable KSU_MULTI_MANAGER_SUPPORT \
+            --disable KPM
+    fi
 fi
 # Resolve dependency chain after config changes
 make $MAKE_ARGS CC="ccache clang" olddefconfig
