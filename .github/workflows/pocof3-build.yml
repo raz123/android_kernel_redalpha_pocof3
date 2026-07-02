@@ -129,6 +129,7 @@ jobs:
           GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
           KSU_SUFFIX="_ReSukiSU"
           [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
+          rm -rf anykernel anykernel-modules
           git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
           # === A/B SLOT FIX ===
           # === A/B SLOT FIX: SLOT_SELECT=active auto-detects correct slot ===
