@@ -89,6 +89,18 @@ jobs:
               if [ -n "$IMAGE" ]; then
                 SIZE=$(stat -c%s "$IMAGE" 2>/dev/null)
                 [ "$SIZE" -gt 15728640 ] && echo "Gate (Size): PASS ($SIZE)" || { echo "Gate (Size): FAIL ($SIZE)"; FAILED=1; }
+              if [ -f "out/arch/arm64/boot/dtbo.img" ]; then
+                echo "Gate (dtbo.img): PASS"
+              elif [ -f "out/arch/arm64/boot/dtb" ]; then
+                echo "Gate (dtb): PASS"
+              else
+                echo "Gate (dtb): WARN (dtbo.img not found)"
+              fi
+              if [ -f "out/arch/arm64/boot/dtb" ]; then
+                echo "Gate (dtb): PASS"
+              else
+                echo "Gate (dtb): WARN (dtb not found)"
+              fi
               else
                 echo "Gate (Image): FAIL"; FAILED=1
               fi
@@ -162,7 +174,17 @@ jobs:
           path: build/*.zip
           if-no-files-found: error
 
-      - name: Set release env
+      
+      - name: Verify ZIP integrity
+        run: |
+          ZIP_FILE=$(ls build/*.zip 2>/dev/null | head -1)
+          if [ -n "$ZIP_FILE" ] && [ -s "$ZIP_FILE" ]; then
+            echo "Gate (ZIP): PASS ($(stat -c%s "$ZIP_FILE") bytes)"
+          else
+            echo "Gate (ZIP): FAIL"
+            exit 1
+          fi
+        - name: Set release env
         if: inputs.release == true
         working-directory: build
         run: |
