@@ -156,6 +156,7 @@ int us_setup_trigger_sensor(struct iio_dev *indio_dev)
 	return 0;
 }
 
+static int us_proximity_teardown(struct us_prox_data *data);
 static void us_prox_data_release(struct kref *ref)
 {
 	struct us_prox_data *data = container_of(ref, struct us_prox_data,
