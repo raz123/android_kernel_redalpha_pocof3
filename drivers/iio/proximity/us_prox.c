@@ -293,8 +293,10 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 	return ret;
 
 free_trigger_p:
-	iio_trigger_unregister(idev->trig);
-	iio_trigger_free(idev->trig);
+	if (idev->trig) {
+		iio_trigger_unregister(idev->trig);
+		iio_trigger_free(idev->trig);
+	}
 free_buffer_p:
 	iio_triggered_buffer_cleanup(idev);
 free_iio_p:
@@ -306,8 +308,10 @@ free_iio_p:
 static int us_proximity_teardown(struct us_prox_data *data)
 {
 	iio_device_unregister(data->prox_idev);
-	iio_trigger_unregister(data->prox_idev->trig);
-	iio_trigger_free(data->prox_idev->trig);
+	if (data->prox_idev->trig) {
+		iio_trigger_unregister(data->prox_idev->trig);
+		iio_trigger_free(data->prox_idev->trig);
+	}
 	iio_triggered_buffer_cleanup(data->prox_idev);
 	iio_device_free(data->prox_idev);
 

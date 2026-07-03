@@ -461,6 +461,7 @@ static ssize_t device_read(struct file *fp, char __user *buff,
 static ssize_t device_write(struct file *fp, const char *buff,
 	size_t length, loff_t *ppos)
 {
+	struct mius_device *device = (struct mius_device *)fp->private_data;
 	ssize_t ret_val;
 
 	ret_val = 0;
@@ -488,6 +489,7 @@ static long device_ioctl(struct file *fp, unsigned int number,
 
 	pr_info_ratelimited("[MIUS_DIAG] ioctl dev=%d number=0x%x param=0x%lx\n",
 			(int)(device - mius_devices), number, param);
+	switch (number) {
 	case IOCTL_MIUS_DATA_IO_CANCEL:
 		MI_PRINT_D("IOCTL_MIUS_CANCEL_READ %ld",
 			param);
@@ -540,13 +542,13 @@ static unsigned int device_poll(struct file *file,
 
 	fifo_len = kfifo_len(&mius_data->fifo_isr);
 
-	pr_info_ratelimited("[MIUS_DIAG] poll dev=%d opened=%d fifo_len=%u mask=0x%x\n",
-			(int)(mius_device - mius_devices), mius_device->opened, fifo_len, mask);
-
 	if (fifo_len)
 		mask = POLLIN | POLLRDNORM;
 	else
 		mask = 0;
+
+	pr_info_ratelimited("[MIUS_DIAG] poll dev=%d opened=%d fifo_len=%u mask=0x%x\n",
+			(int)(mius_device - mius_devices), mius_device->opened, fifo_len, mask);
 
 	return mask;
 }
