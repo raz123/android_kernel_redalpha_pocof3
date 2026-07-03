@@ -101,7 +101,8 @@ static void us_prox_push_event(struct us_prox_data *data, int value)
 		el_data.data1 = 5;
 
 	iio_push_to_buffers(data->prox_idev, (unsigned char *)&el_data);
-	wake_up_poll(&data->prox_idev->buffer->pollq, EPOLLIN);
+	if (data->prox_idev->buffer)
+		wake_up_poll(&data->prox_idev->buffer->pollq, EPOLLIN);
 }
 static int us_buffer_postenable(struct iio_dev *indio_dev)
 {
@@ -172,7 +173,8 @@ int us_afe_callback(int data)
 		if (ret < 0)
 			pr_err("%s: failed to push us prox data to buffer, err=%d\n",
 				__func__, ret);
-		wake_up_poll(&g_us_prox->prox_idev->buffer->pollq, EPOLLIN);
+		if (g_us_prox->prox_idev->buffer)
+			wake_up_poll(&g_us_prox->prox_idev->buffer->pollq, EPOLLIN);
 	}
 
 	return 0;
@@ -336,8 +338,6 @@ static int us_prox_probe(struct platform_device *pdev)
 	us_prox->pdev = pdev;
 	dev_set_drvdata(&pdev->dev, us_prox);
 
-	g_us_prox = us_prox;
-
 	mutex_init(&us_prox->mutex);
 	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
 	ret = us_proximity_iio_setup(us_prox);
@@ -347,6 +347,7 @@ static int us_prox_probe(struct platform_device *pdev)
 		kfree(us_prox);
 		return ret;
 	}
+	g_us_prox = us_prox;
 
 	return ret;
 }
