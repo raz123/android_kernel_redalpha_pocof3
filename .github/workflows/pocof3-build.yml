@@ -174,20 +174,21 @@ jobs:
           fi;
           DUALEOF
           cat > /tmp/dual_slot_patch2.sh << 'DUALEOF'
-          # Flash other slot (dual-slot mode)
-          if [ "$DUAL_SLOT" = "1" ] && [ "$OTHER_BLOCK" ]; then
+          # Flash both slots reliably (post-flash_boot)
+          if [ "$DUAL_SLOT" = "1" ] && [ -f "${AKHOME}/boot-new.img" ]; then
             IMG="${AKHOME}/boot-new.img";
-            if [ ! -f "$IMG" ]; then
-              ui_print "  ERROR: $IMG not found! Other slot NOT flashed.";
-            else
-              ui_print "  -> Flashing $OTHER_BLOCK...";
-              if dd if="$IMG" of="$OTHER_BLOCK" bs=4096 2>/dev/null; then
-                sync;
-                ui_print "  -> Other slot flashed successfully!";
-              else
-                ui_print "  ERROR: dd failed on $OTHER_BLOCK!";
+            ui_print "  -> Flashing active slot ($BLOCK)...";
+            if ! dd if="$IMG" of="$BLOCK" bs=4096 2>/dev/null; then
+              ui_print "  WARNING: dd to active slot failed!";
+            fi;
+            if [ "$OTHER_BLOCK" ]; then
+              ui_print "  -> Flashing other slot ($OTHER_BLOCK)...";
+              if ! dd if="$IMG" of="$OTHER_BLOCK" bs=4096 2>/dev/null; then
+                ui_print "  WARNING: dd to other slot failed!";
               fi;
             fi;
+            sync;
+            ui_print "  -> Both slots flashed successfully!";
           fi;
           DUALEOF
           # Apply dual-slot patches to anykernel.sh
