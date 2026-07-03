@@ -135,6 +135,65 @@ jobs:
           # === A/B SLOT FIX: SLOT_SELECT=active auto-detects correct slot ===
           sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
           # === END A/B SLOT FIX ===
+          # === Dual-Slot Flash ===
+          cat > /tmp/dual_slot_patch1.sh << 'DUALEOF'
+          # === Dual-Slot Flash (RedAlpha) ===
+          DUAL_SLOT=1;
+          OTHER_BLOCK="";
+          if [ "$SLOT" ]; then
+            ui_print " ";
+            ui_print "  -----------------------------------------";
+            ui_print "  Dual-Slot Flash Mode";
+            ui_print "  -----------------------------------------";
+            ui_print "  Default: flash BOTH A/B slots.";
+            ui_print "  Abort via ADB: touch /tmp/.skip_dualslot";
+            ui_print "  (Or hold VOLUME UP in recovery)";
+            ui_print "  -----------------------------------------";
+            ui_print " ";
+            if [ -f /tmp/.skip_dualslot ]; then
+              rm -f /tmp/.skip_dualslot;
+              DUAL_SLOT=0;
+              ui_print "  -> Skip file found: active slot only.";
+            elif timeout 10 getevent -c5 2>/dev/null | grep -qm1 '0001 0073'; then
+              DUAL_SLOT=0;
+              ui_print "  -> VOLUME UP pressed: active slot only!";
+            else
+              ui_print "  -> Flashing BOTH slots!";
+            fi;
+            ui_print "  -----------------------------------------";
+            case "$BLOCK" in
+              *_a) OTHER_BLOCK="${BLOCK%_a}_b";;
+              *_b) OTHER_BLOCK="${BLOCK%_b}_a";;
+            esac;
+            if [ "$OTHER_BLOCK" = "$BLOCK" ] || [ -z "$OTHER_BLOCK" ]; then
+              OTHER_BLOCK="";
+              ui_print "  Warning: could not determine other slot block device.";
+            else
+              ui_print "  Other slot: $OTHER_BLOCK";
+            fi;
+          fi;
+          DUALEOF
+          cat > /tmp/dual_slot_patch2.sh << 'DUALEOF'
+          # Flash other slot (dual-slot mode)
+          if [ "$DUAL_SLOT" = "1" ] && [ "$OTHER_BLOCK" ]; then
+            IMG="${AKHOME}/boot-new.img";
+            if [ ! -f "$IMG" ]; then
+              ui_print "  ERROR: $IMG not found! Other slot NOT flashed.";
+            else
+              ui_print "  -> Flashing $OTHER_BLOCK...";
+              if dd if="$IMG" of="$OTHER_BLOCK" bs=4096 2>/dev/null; then
+                sync;
+                ui_print "  -> Other slot flashed successfully!";
+              else
+                ui_print "  ERROR: dd failed on $OTHER_BLOCK!";
+              fi;
+            fi;
+          fi;
+          DUALEOF
+          # Apply dual-slot patches to anykernel.sh
+          sed -i '/^# boot install$/r /tmp/dual_slot_patch1.sh' anykernel/anykernel.sh
+          sed -i '/^flash_boot;$/r /tmp/dual_slot_patch2.sh' anykernel/anykernel.sh
+          # === END Dual-Slot Flash ===
           mkdir -p anykernel/kernels/aosp/
           if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
             cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
