@@ -354,6 +354,7 @@ static int us_prox_remove(struct platform_device *pdev)
 
 	if (us_prox) {
 		cancel_delayed_work_sync(&us_prox->keepalive_work);
+		g_us_prox = NULL;
 		us_proximity_teardown(us_prox);
 		kfree(us_prox);
 	}
