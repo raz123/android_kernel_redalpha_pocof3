@@ -299,6 +299,7 @@ int mius_data_push(int deviceid,
 	struct mius_data *mius_data;
 	unsigned int fifo_result;
 	static uint8_t zero_pad_buffer[MIUS_MSG_BUF_SIZE];
+	char us_data_buf[MIUS_MSG_BUF_SIZE];
 
 	err = 0;
 	fifo_result = 0;
@@ -306,6 +307,22 @@ int mius_data_push(int deviceid,
 	copy_from_user_result = 0;
 	if (buffer_size > MIUS_MSG_BUF_SIZE)
 		return -EINVAL;
+
+	/* Pre-copy userspace data to kernel buffer before taking spinlock.
+	 * kfifo_from_user cannot be called under spinlock (copy_from_user may sleep).
+	 */
+	if (data_source == MIUS_DATA_PUSH_FROM_USERSPACE) {
+		copy_from_user_result = copy_from_user(us_data_buf,
+			(const void __user *)buffer, buffer_size);
+		if (copy_from_user_result > 0) {
+			pr_err_ratelimited("[MIUS] copy_from_user failed (%d bytes)\n",
+				copy_from_user_result);
+			err = -EFAULT;
+		}
+		buffer = us_data_buf;
+		/* Now treat as kernel pointer for the rest of the function */
+		data_source = MIUS_DATA_PUSH_FROM_KERNEL;
+	}
 
 	zeros_to_pad = MIUS_MSG_BUF_SIZE - buffer_size;
 
@@ -340,29 +357,15 @@ int mius_data_push(int deviceid,
 				MIUS_MSG_BUF_SIZE);
 		}
 
-		if (data_source == MIUS_DATA_PUSH_FROM_KERNEL) {
-			fifo_result = kfifo_in(&mius_data->fifo_isr,
-				buffer, buffer_size);
+		fifo_result = kfifo_in(&mius_data->fifo_isr,
+			buffer, buffer_size);
 
-			if (fifo_result == 0) {
-				spin_unlock_irqrestore(
-					&mius_data->fifo_isr_spinlock,
-					flags);
-				continue;
-			}
-		} else if (data_source == MIUS_DATA_PUSH_FROM_USERSPACE) {
-			copy_from_user_result = kfifo_from_user(
-				&mius_data->fifo_isr, buffer,
-				buffer_size, &copied_from_user);
-
-			if (-EFAULT == copy_from_user_result) {
-				spin_unlock_irqrestore(
-					&mius_data->fifo_isr_spinlock,
-					flags);
-				continue;
-			}
+		if (fifo_result == 0) {
+			spin_unlock_irqrestore(
+				&mius_data->fifo_isr_spinlock,
+				flags);
+			continue;
 		}
-
 
 		if (zeros_to_pad > 0) {
 			fifo_result = kfifo_in(
