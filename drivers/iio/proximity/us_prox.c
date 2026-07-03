@@ -167,14 +167,17 @@ int us_afe_callback(int data)
 	else
 		el_data.data1 = 5;
 
-	if (g_us_prox) {
-		ret = iio_push_to_buffers(g_us_prox->prox_idev,
-					 (unsigned char *)&el_data);
-		if (ret < 0)
-			pr_err("%s: failed to push us prox data to buffer, err=%d\n",
-				__func__, ret);
-		if (g_us_prox->prox_idev->buffer)
-			wake_up_poll(&g_us_prox->prox_idev->buffer->pollq, EPOLLIN);
+	{
+		struct us_prox_data *prox = rcu_dereference(g_us_prox);
+		if (prox) {
+			ret = iio_push_to_buffers(prox->prox_idev,
+						 (unsigned char *)&el_data);
+			if (ret < 0)
+				pr_err("%s: failed to push us prox data to buffer, err=%d\n",
+					__func__, ret);
+			if (prox->prox_idev->buffer)
+				wake_up_poll(&prox->prox_idev->buffer->pollq, EPOLLIN);
+		}
 	}
 
 	return 0;
@@ -214,10 +217,6 @@ static struct attribute_group us_prox_attribute_group = {
 	.attrs = us_prox_attributes,
 };
 
-static const struct iio_info us_proximity_info = {
-	.read_raw = us_prox_read_raw,
-	.attrs = &us_prox_attribute_group,
-};
 static int us_prox_read_raw(struct iio_dev *indio_dev,
 			struct iio_chan_spec const *chan,
 			int *val, int *val2, long mask)
@@ -248,6 +247,11 @@ static int us_prox_read_raw(struct iio_dev *indio_dev,
 
 	return ret;
 }
+
+static const struct iio_info us_proximity_info = {
+	.read_raw = us_prox_read_raw,
+	.attrs = &us_prox_attribute_group,
+};
 static void us_prox_keepalive_work(struct work_struct *work)
 {
 	struct us_prox_data *data = container_of(work, struct us_prox_data,
@@ -343,12 +347,10 @@ static int us_prox_probe(struct platform_device *pdev)
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
-		g_us_prox = NULL;
 		kfree(us_prox);
 		return ret;
 	}
-	g_us_prox = us_prox;
-
+	rcu_assign_pointer(g_us_prox, us_prox);
 	return ret;
 }
 
@@ -361,7 +363,8 @@ static int us_prox_remove(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (us_prox) {
-		g_us_prox = NULL;
+		rcu_assign_pointer(g_us_prox, NULL);
+		synchronize_rcu();
 		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		us_proximity_teardown(us_prox);
 		kfree(us_prox);
