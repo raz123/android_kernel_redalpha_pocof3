@@ -209,7 +209,6 @@ int mius_data_initialize(struct mius_data
 
 int mius_data_cleanup(struct mius_data *mius_data)
 {
-	spin_unlock(&mius_data->fifo_isr_spinlock);
 	kfifo_free(&mius_data->fifo_isr);
 	return 0;
 }
@@ -559,6 +558,7 @@ static int device_close(struct inode *inode, struct file *filp)
 	struct mius_device *device;
 	struct mius_data *mius_data;
 	unsigned int minor;
+	unsigned long flags;
 
 	device = (struct mius_device *)filp->private_data;
 	mius_data = &device->el_data;
@@ -567,9 +567,12 @@ static int device_close(struct inode *inode, struct file *filp)
 	pr_info("[MIUS_DIAG] close dev=%u opened=%d\n", minor, device->opened);
 
 	if (device->opened) {
+		spin_lock_irqsave(&mius_data->fifo_isr_spinlock, flags);
 		mius_data_flush_isr_fifo(mius_data);
+		spin_unlock_irqrestore(&mius_data->fifo_isr_spinlock, flags);
 		device->opened = 0;
 	}
+	up(&device->sem);
 	mius_data = NULL;
 	return 0;
 }

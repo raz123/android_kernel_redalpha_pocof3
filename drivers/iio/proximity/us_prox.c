@@ -160,6 +160,8 @@ static void us_prox_data_release(struct kref *ref)
 {
 	struct us_prox_data *data = container_of(ref, struct us_prox_data,
 						refcount);
+	if (data->prox_idev)
+		us_proximity_teardown(data);
 	kfree(data);
 }
 
@@ -378,7 +380,6 @@ static int us_prox_remove(struct platform_device *pdev)
 		rcu_assign_pointer(g_us_prox, NULL);
 		synchronize_rcu();
 		cancel_delayed_work_sync(&us_prox->keepalive_work);
-		us_proximity_teardown(us_prox);
 		kref_put(&us_prox->refcount, us_prox_data_release);
 	}
 	return 0;
