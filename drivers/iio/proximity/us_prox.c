@@ -35,6 +35,8 @@
 #include <linux/workqueue.h>
 #include <linux/poll.h>
 #include <linux/iio/buffer_impl.h>
+#include <linux/kref.h>
+#include <linux/rcupdate.h>
 
 #define US_PROX_IIO_NAME		"distance"
 #define US_PROX_KEEPALIVE_MS		2000
@@ -45,6 +47,8 @@ struct us_prox_data {
 	struct platform_device	*pdev;
 	/* common state */
 	struct mutex		mutex;
+	/* reference counting for safe concurrent access */
+	struct kref		refcount;
 	/* for proximity sensor */
 	struct iio_dev		*prox_idev;
 	struct delayed_work	keepalive_work;
@@ -152,34 +156,41 @@ int us_setup_trigger_sensor(struct iio_dev *indio_dev)
 	return 0;
 }
 
+static void us_prox_data_release(struct kref *ref)
+{
+	struct us_prox_data *data = container_of(ref, struct us_prox_data,
+						refcount);
+	kfree(data);
+}
+
 int us_afe_callback(int data)
 {
-	int ret;
+	struct us_prox_data *prox;
 	struct us_prox_el_data el_data;
 	struct timespec ts;
+	int ret;
 
 	get_monotonic_boottime(&ts);
 	el_data.timestamp = timespec_to_ns(&ts);
-	pr_info("%s: data = %d\n", __func__, data);
+	el_data.data1 = (data != 0) ? 5 : 0;
 
-	if (!data)
-		el_data.data1 = 0;
-	else
-		el_data.data1 = 5;
+	rcu_read_lock();
+	prox = rcu_dereference(g_us_prox);
+	if (prox && !kref_get_unless_zero(&prox->refcount))
+		prox = NULL;
+	rcu_read_unlock();
 
-	{
-		struct us_prox_data *prox = rcu_dereference(g_us_prox);
-		if (prox) {
-			ret = iio_push_to_buffers(prox->prox_idev,
-						 (unsigned char *)&el_data);
-			if (ret < 0)
-				pr_err("%s: failed to push us prox data to buffer, err=%d\n",
-					__func__, ret);
-			if (prox->prox_idev->buffer)
-				wake_up_poll(&prox->prox_idev->buffer->pollq, EPOLLIN);
-		}
-	}
+	if (!prox)
+		return 0;
 
+	ret = iio_push_to_buffers(prox->prox_idev, (unsigned char *)&el_data);
+	if (ret < 0)
+		pr_err("%s: failed to push us prox data to buffer, err=%d\n",
+			__func__, ret);
+	if (prox->prox_idev->buffer)
+		wake_up_poll(&prox->prox_idev->buffer->pollq, EPOLLIN);
+
+	kref_put(&prox->refcount, us_prox_data_release);
 	return 0;
 }
 EXPORT_SYMBOL(us_afe_callback);
@@ -343,11 +354,12 @@ static int us_prox_probe(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, us_prox);
 
 	mutex_init(&us_prox->mutex);
+	kref_init(&us_prox->refcount);
 	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
-		kfree(us_prox);
+		kref_put(&us_prox->refcount, us_prox_data_release);
 		return ret;
 	}
 	rcu_assign_pointer(g_us_prox, us_prox);
@@ -367,7 +379,7 @@ static int us_prox_remove(struct platform_device *pdev)
 		synchronize_rcu();
 		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		us_proximity_teardown(us_prox);
-		kfree(us_prox);
+		kref_put(&us_prox->refcount, us_prox_data_release);
 	}
 	return 0;
 }

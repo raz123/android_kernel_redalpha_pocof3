@@ -567,7 +567,7 @@ static int device_close(struct inode *inode, struct file *filp)
 	pr_info("[MIUS_DIAG] close dev=%u opened=%d\n", minor, device->opened);
 
 	if (device->opened) {
-		mius_data_isr_fifo_flush(mius_data);
+		mius_data_flush_isr_fifo(mius_data);
 		device->opened = 0;
 	}
 	mius_data = NULL;
