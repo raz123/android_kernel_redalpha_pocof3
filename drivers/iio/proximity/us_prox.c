@@ -32,8 +32,12 @@
 #include <asm/bootinfo.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/workqueue.h>
+#include <linux/poll.h>
+#include <linux/iio/buffer_impl.h>
 
 #define US_PROX_IIO_NAME		"distance"
+#define US_PROX_KEEPALIVE_MS		2000
 
 static struct us_prox_data *g_us_prox;
 
@@ -43,8 +47,9 @@ struct us_prox_data {
 	struct mutex		mutex;
 	/* for proximity sensor */
 	struct iio_dev		*prox_idev;
-	bool			prox_enabled;
-	int				raw_data;
+	struct delayed_work	keepalive_work;
+	int			prox_enabled;
+	int			raw_data;
 };
 
 struct us_prox_el_data {
@@ -78,6 +83,25 @@ static const struct iio_chan_spec us_proximity_channels[] = {
 	IIO_CHAN_SOFT_TIMESTAMP(2)
 };
 
+static void us_prox_push_event(struct us_prox_data *data, int value)
+{
+	struct us_prox_el_data el_data;
+	struct timespec ts;
+
+	if (!data || !data->prox_idev)
+		return;
+
+	get_monotonic_boottime(&ts);
+	el_data.timestamp = timespec_to_ns(&ts);
+
+	if (!value)
+		el_data.data1 = 0;
+	else
+		el_data.data1 = 5;
+
+	iio_push_to_buffers(data->prox_idev, (unsigned char *)&el_data);
+	wake_up_poll(&data->prox_idev->buffer->pollq, EPOLLIN);
+}
 static int us_buffer_postenable(struct iio_dev *indio_dev)
 {
 	int ret = 0;
@@ -101,26 +125,7 @@ static const struct iio_trigger_ops us_sensor_trigger_ops = {
 
 int us_setup_trigger_sensor(struct iio_dev *indio_dev)
 {
-	struct iio_trigger *trigger;
-	int ret;
-
-	trigger = iio_trigger_alloc("%s-dev%d", indio_dev->name, indio_dev->id);
-	if (!trigger)
-		return -ENOMEM;
-
-	trigger->dev.parent = indio_dev->dev.parent;
-	trigger->ops = &us_sensor_trigger_ops;
-	ret = iio_trigger_register(trigger);
-	if (ret < 0)
-		goto exit_free_trigger;
-
-	indio_dev->trig = trigger;
-
 	return 0;
-
-exit_free_trigger:
-	iio_trigger_free(trigger);
-	return ret;
 }
 
 int us_afe_callback(int data)
@@ -184,9 +189,48 @@ static struct attribute_group us_prox_attribute_group = {
 };
 
 static const struct iio_info us_proximity_info = {
-	//.driver_module = THIS_MODULE,
+	.read_raw = us_prox_read_raw,
 	.attrs = &us_prox_attribute_group,
 };
+static int us_prox_read_raw(struct iio_dev *indio_dev,
+			struct iio_chan_spec const *chan,
+			int *val, int *val2, long mask)
+{
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+	int ret = -EINVAL;
+
+	if (!priv_data)
+		return ret;
+
+	data = *priv_data;
+	if (!data)
+		return ret;
+
+	mutex_lock(&data->mutex);
+
+	switch (mask) {
+	case IIO_CHAN_INFO_RAW:
+		*val = data->raw_data;
+		ret = IIO_VAL_INT;
+		break;
+	default:
+		break;
+	}
+
+	mutex_unlock(&data->mutex);
+
+	return ret;
+}
+static void us_prox_keepalive_work(struct work_struct *work)
+{
+	struct us_prox_data *data = container_of(work, struct us_prox_data,
+					keepalive_work.work);
+
+	us_prox_push_event(data, 0);
+	schedule_delayed_work(&data->keepalive_work,
+		msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+}
 
 static int us_proximity_iio_setup(struct us_prox_data *data)
 {
@@ -266,6 +310,8 @@ static int us_prox_probe(struct platform_device *pdev)
 	g_us_prox = us_prox;
 
 	mutex_init(&us_prox->mutex);
+	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
+	schedule_delayed_work(&us_prox->keepalive_work, msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
@@ -284,12 +330,14 @@ static int us_prox_remove(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (us_prox) {
+		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		us_proximity_teardown(us_prox);
 		kfree(us_prox);
 	}
 
 	return 0;
 }
+
 
 static const struct of_device_id dt_match[] = {
 	{ .compatible = "us_prox" },

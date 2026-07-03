@@ -404,6 +404,26 @@ int32_t mius_process_apr_payload(uint32_t *payload)
 			break;
 		case MIUS_ULTRASOUND_PARAM_ID_ENGINE_DATA:
 #endif
+			{
+				uint32_t max_copy;
+				/* payload_size from ADSP packet header */
+				payload_size = payload[2] & 0xFFFF;
+				/* Bound against MIUS buffer and remaining msg */
+				max_copy = min(payload_size,
+					       (uint32_t)MIUS_MSG_BUF_SIZE);
+				if (max_copy > 0) {
+					ret = mius_data_push(MIUS_ALL_DEVICES,
+						(const char *)&payload[3],
+						max_copy,
+						MIUS_DATA_PUSH_FROM_KERNEL);
+				}
+				if (ret != 0) {
+					pr_err("[MIUS] : failed to push apr payload to mius device");
+					return ret;
+				}
+				ret = max_copy;
+			}
+#if 0
 			printk(KERN_DEBUG "[MIUS] mi us payload[3] = %d", (int)payload[3]);
 			if (payload[3] == 0 || payload[3] == 1) {
 				ups_event = payload[3];
@@ -420,6 +440,9 @@ int32_t mius_process_apr_payload(uint32_t *payload)
 				return ret;
 			}
 			ret = payload_size;
+#endif
+			break;
+		default:
 #if 0
 			break;
 		default:

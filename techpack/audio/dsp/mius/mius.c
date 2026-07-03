@@ -323,8 +323,11 @@ int mius_data_push(int deviceid,
 		device = &mius_devices[i];
 		mius_data = &device->el_data;
 
-		if ((!device->opened))
+		if ((!device->opened)) {
+			pr_info_ratelimited("[MIUS_DIAG] push skip closed dev=%d size=%zu source=%d\n",
+					i, buffer_size, data_source);
 			continue;
+		}
 
 		available_space = kfifo_avail(&mius_data->fifo_isr);
 		space_required = MIUS_MSG_BUF_SIZE;
@@ -381,6 +384,9 @@ int mius_data_push(int deviceid,
 		}
 
 
+		pr_info_ratelimited("[MIUS_DIAG] push dev=%d size=%zu padded=%zu fifo_len=%u source=%d\n",
+				i, buffer_size, zeros_to_pad,
+				kfifo_len(&mius_data->fifo_isr), data_source);
 		++mius_data->isr_write_total;
 		spin_unlock_irqrestore(
 			&mius_data->fifo_isr_spinlock, flags);
@@ -443,6 +449,8 @@ static ssize_t device_read(struct file *fp, char __user *buff,
 
 	bytes_read = mius_data_pop(mius_data, buff, length);
 
+	pr_info_ratelimited("[MIUS_DIAG] read dev=%d requested=%zu ret=%zd\n",
+			(int)(mius_device - mius_devices), length, bytes_read);
 	return bytes_read;
 }
 
@@ -460,6 +468,8 @@ static ssize_t device_write(struct file *fp, const char *buff,
 		ret_val = mius_data_io_write(MIUS_ULTRASOUND_SET_PARAMS,
 			buff, length);
 
+	pr_info_ratelimited("[MIUS_DIAG] write dev=%d len=%zu ret=%zd\n",
+			(int)(device - mius_devices), length, ret_val);
 	return ret_val >= 0 ? (ssize_t)length : 0;
 }
 
@@ -476,7 +486,8 @@ static long device_ioctl(struct file *fp, unsigned int number,
 	device = (struct mius_device *)(fp->private_data);
 	mius_data = &device->el_data;
 
-	switch (number) {
+	pr_info_ratelimited("[MIUS_DIAG] ioctl dev=%d number=0x%x param=0x%lx\n",
+			(int)(device - mius_devices), number, param);
 	case IOCTL_MIUS_DATA_IO_CANCEL:
 		MI_PRINT_D("IOCTL_MIUS_CANCEL_READ %ld",
 			param);
@@ -521,18 +532,21 @@ static unsigned int device_poll(struct file *file,
 	struct poll_table_struct *poll_table)
 {
 	unsigned int mask;
-
-	struct mius_device *device;
-	struct mius_data *mius_data;
-
-	mask = 0;
-	device = (struct mius_device *)file->private_data;
-	mius_data = (struct mius_data *)&device->el_data;
+	struct mius_device *mius_device = file->private_data;
+	struct mius_data *mius_data = &mius_device->el_data;
+	unsigned int fifo_len;
 
 	poll_wait(file, &mius_data->fifo_isr_not_empty, poll_table);
 
-	if (!kfifo_is_empty(&mius_data->fifo_isr))
+	fifo_len = kfifo_len(&mius_data->fifo_isr);
+
+	pr_info_ratelimited("[MIUS_DIAG] poll dev=%d opened=%d fifo_len=%u mask=0x%x\n",
+			(int)(mius_device - mius_devices), mius_device->opened, fifo_len, mask);
+
+	if (fifo_len)
 		mask = POLLIN | POLLRDNORM;
+	else
+		mask = 0;
 
 	return mask;
 }
@@ -544,21 +558,17 @@ static int device_close(struct inode *inode, struct file *filp)
 	struct mius_data *mius_data;
 	unsigned int minor;
 
-	device = filp->private_data;
+	device = (struct mius_device *)filp->private_data;
 	mius_data = &device->el_data;
 	minor = iminor(inode);
-	if (device == NULL) {
-		MI_PRINT_E("device not found");
-		return -ENODEV;
+
+	pr_info("[MIUS_DIAG] close dev=%u opened=%d\n", minor, device->opened);
+
+	if (device->opened) {
+		mius_data_isr_fifo_flush(mius_data);
+		device->opened = 0;
 	}
-
-	device->opened = 0;
-	mius_data_update_debug_counters(mius_data);
-	mius_data_print_debug_counters(mius_data);
-	mius_data_cancel(mius_data);
-	up(&device->sem);
-
-	MI_PRINT_I("Closed device mius%u", minor);
+	mius_data = NULL;
 	return 0;
 }
 
