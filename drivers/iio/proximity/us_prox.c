@@ -186,12 +186,14 @@ int us_afe_callback(int data)
 	if (!prox)
 		return 0;
 
-	ret = iio_push_to_buffers(prox->prox_idev, (unsigned char *)&el_data);
-	if (ret < 0)
-		pr_err("%s: failed to push us prox data to buffer, err=%d\n",
-			__func__, ret);
-	if (prox->prox_idev->buffer)
+	if (prox->prox_idev->buffer) {
+		ret = iio_push_to_buffers(prox->prox_idev,
+					 (unsigned char *)&el_data);
+		if (ret < 0)
+			pr_err("%s: failed to push us prox data to buffer, err=%d\n",
+				__func__, ret);
 		wake_up_poll(&prox->prox_idev->buffer->pollq, EPOLLIN);
+	}
 
 	kref_put(&prox->refcount, us_prox_data_release);
 	return 0;
