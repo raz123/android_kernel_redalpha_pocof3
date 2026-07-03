@@ -15,17 +15,17 @@
 # - uclamp.max: ceiling — task never exceeds this
 # - uclamp.latency_sensitive: prefer idle CPU placement
 #
-# Reviewed by Android kernel/scheduler specialist (2026-07-03).
-# Key findings:
-#  - min=0.00 + LS=1 paradoxically biases toward little cores
-#    (uclamp_boosted=false negates the big-core preference)
-#  - RT tasks use RT scheduler, NOT EAS/CFS — uclamp min doesn't
-#    affect their placement; 20% mild floor is generous enough
-#  - Buckets 20 is overkill for 5 distinct values but harmless
+# Reviewed by Android kernel/scheduler specialist (2026-07-03, revised).
+# Battery-aware final values:
+#  - UCLAMP guides task placement (EAS), NOT frequency (schedtune).
+#  - Only top-app gets min=10% for first-frame latency.
+#  - foreground min=0.00 → uclamp_boosted=false → LS=1 prefers
+#    little idle CPUs (battery-safe). Big-core bias would cost standby.
+#  - RT UCLAMP is a no-op on WALT — RT uses RT scheduler, not EAS,
+#    and frequency boost comes from schedtune's 50ms boost-hold.
+#    rt group is intentionally NOT set here.
+#  - Buckets 20 is overkill but harmless.
 #
-# INSTALLATION:
-#   Copy to /data/adb/ksu/service.d/uclamp_tuning.sh
-#   chmod +x /data/adb/ksu/service.d/uclamp_tuning.sh
 #==============================================================================
 
 CPU_DIR=/dev/cpuctl
@@ -38,11 +38,11 @@ if [ -f "$CPU_DIR/top-app/cpu.uclamp.min" ]; then
   echo 1    > "$CPU_DIR/top-app/cpu.uclamp.latency_sensitive"
 fi
 
-# foreground — visible system services: prefer big cores
-# min=0.05 is critical — at 0.00, uclamp_boosted=false and LS=1
-# paradoxically sends foreground tasks to little cores
+# foreground — visible system services: battery-safe, no boost
+# min=0.00 → uclamp_boosted=false → LS=1 prefers little idle CPUs
+# (at min=0.05 it would bias to big cores — bad for battery)
 if [ -f "$CPU_DIR/foreground/cpu.uclamp.min" ]; then
-  echo 0.05 > "$CPU_DIR/foreground/cpu.uclamp.min"
+  echo 0.00 > "$CPU_DIR/foreground/cpu.uclamp.min"
   echo 1.00 > "$CPU_DIR/foreground/cpu.uclamp.max"
   echo 1    > "$CPU_DIR/foreground/cpu.uclamp.latency_sensitive"
 fi
@@ -67,13 +67,4 @@ if [ -f "$CPU_DIR/system/cpu.uclamp.min" ]; then
   echo 0.00 > "$CPU_DIR/system/cpu.uclamp.min"
   echo 0.80 > "$CPU_DIR/system/cpu.uclamp.max"
   echo 0    > "$CPU_DIR/system/cpu.uclamp.latency_sensitive"
-fi
-
-# rt — real-time (audio, IRQ, IO completion): mild floor
-# Frequency boosting for RT comes from schedtune, not uclamp.
-# min=20% is for any CFS cross-path tasks that may be in this group.
-if [ -f "$CPU_DIR/rt/cpu.uclamp.min" ]; then
-  echo 0.20 > "$CPU_DIR/rt/cpu.uclamp.min"
-  echo 1.00 > "$CPU_DIR/rt/cpu.uclamp.max"
-  echo 1    > "$CPU_DIR/rt/cpu.uclamp.latency_sensitive"
 fi
