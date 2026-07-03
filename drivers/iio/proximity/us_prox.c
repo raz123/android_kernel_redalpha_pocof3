@@ -48,6 +48,7 @@ struct us_prox_data {
 	/* for proximity sensor */
 	struct iio_dev		*prox_idev;
 	struct delayed_work	keepalive_work;
+	int			keepalive_active;
 	int			prox_enabled;
 	int			raw_data;
 };
@@ -113,6 +114,7 @@ static int us_buffer_postenable(struct iio_dev *indio_dev)
 	if (!data)
 		return -EINVAL;
 
+	data->keepalive_active = 1;
 	schedule_delayed_work(&data->keepalive_work,
 		msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
 	return 0;
@@ -129,7 +131,9 @@ static int us_buffer_predisable(struct iio_dev *indio_dev)
 	if (!data)
 		return -EINVAL;
 
+	data->keepalive_active = 0;
 	cancel_delayed_work_sync(&data->keepalive_work);
+	cancel_delayed_work(&data->keepalive_work);
 	return 0;
 }
 
@@ -248,8 +252,9 @@ static void us_prox_keepalive_work(struct work_struct *work)
 					keepalive_work.work);
 
 	us_prox_push_event(data, 0);
-	schedule_delayed_work(&data->keepalive_work,
-		msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+	if (data->keepalive_active)
+		schedule_delayed_work(&data->keepalive_work,
+			msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
 }
 
 static int us_proximity_iio_setup(struct us_prox_data *data)
@@ -338,6 +343,8 @@ static int us_prox_probe(struct platform_device *pdev)
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
+		g_us_prox = NULL;
+		kfree(us_prox);
 		return ret;
 	}
 
@@ -353,12 +360,11 @@ static int us_prox_remove(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (us_prox) {
-		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		g_us_prox = NULL;
+		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		us_proximity_teardown(us_prox);
 		kfree(us_prox);
 	}
-
 	return 0;
 }
 
