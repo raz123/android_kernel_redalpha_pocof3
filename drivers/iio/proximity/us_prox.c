@@ -104,14 +104,33 @@ static void us_prox_push_event(struct us_prox_data *data, int value)
 }
 static int us_buffer_postenable(struct iio_dev *indio_dev)
 {
-	int ret = 0;
-	return ret;
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+
+	if (!priv_data)
+		return -EINVAL;
+	data = *priv_data;
+	if (!data)
+		return -EINVAL;
+
+	schedule_delayed_work(&data->keepalive_work,
+		msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+	return 0;
 }
 
 static int us_buffer_predisable(struct iio_dev *indio_dev)
 {
-	int ret = 0;
-	return ret;
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+
+	if (!priv_data)
+		return -EINVAL;
+	data = *priv_data;
+	if (!data)
+		return -EINVAL;
+
+	cancel_delayed_work_sync(&data->keepalive_work);
+	return 0;
 }
 
 static const struct iio_buffer_setup_ops us_buffer_setup_ops = {
@@ -149,6 +168,7 @@ int us_afe_callback(int data)
 		if (ret < 0)
 			pr_err("%s: failed to push us prox data to buffer, err=%d\n",
 				__func__, ret);
+		wake_up_poll(&g_us_prox->prox_idev->buffer->pollq, EPOLLIN);
 	}
 
 	return 0;
@@ -311,7 +331,6 @@ static int us_prox_probe(struct platform_device *pdev)
 
 	mutex_init(&us_prox->mutex);
 	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
-	schedule_delayed_work(&us_prox->keepalive_work, msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
