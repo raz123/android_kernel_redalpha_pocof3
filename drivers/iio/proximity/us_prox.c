@@ -52,6 +52,7 @@ struct us_prox_data {
 	/* for proximity sensor */
 	struct iio_dev		*prox_idev;
 	struct delayed_work	keepalive_work;
+	struct delayed_work	defer_enable_work;
 	int			keepalive_active;
 	int			prox_enabled;
 	int			raw_data;
@@ -277,6 +278,27 @@ static void us_prox_keepalive_work(struct work_struct *work)
 		schedule_delayed_work(&data->keepalive_work,
 			msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
 }
+static void us_prox_defer_enable_work(struct work_struct *work)
+{
+	struct us_prox_data *data = container_of(work, struct us_prox_data,
+					defer_enable_work.work);
+	struct iio_dev *idev = data->prox_idev;
+	int ret;
+
+	if (!idev || !idev->buffer)
+		return;
+
+	/* Re-enable buffer if HAL disabled it during init.
+	 * iio_update_buffers checks if already active and becomes a no-op.
+	 */
+	set_bit(0, idev->buffer->scan_mask);
+	idev->buffer->scan_timestamp = true;
+	ret = iio_update_buffers(idev, idev->buffer, NULL);
+	if (ret)
+		pr_err("Proximity buffer defer-enable failed: %d\n", ret);
+	else
+		pr_info("Proximity buffer defer-enabled\n");
+}
 
 static int us_proximity_iio_setup(struct us_prox_data *data)
 {
@@ -327,7 +349,11 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 	ret = iio_update_buffers(idev, idev->buffer, NULL);
 	if (ret)
 		pr_err("Proximity buffer auto-enable failed: %d\n", ret);
+	else
+		pr_info("Proximity buffer auto-enabled\n");
 
+	schedule_delayed_work(&data->defer_enable_work,
+		msecs_to_jiffies(30000));
 	return 0;
 free_trigger_p:
 	if (idev->trig) {
@@ -371,6 +397,7 @@ static int us_prox_probe(struct platform_device *pdev)
 	mutex_init(&us_prox->mutex);
 	kref_init(&us_prox->refcount);
 	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
+	INIT_DELAYED_WORK(&us_prox->defer_enable_work, us_prox_defer_enable_work);
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
@@ -392,6 +419,7 @@ static int us_prox_remove(struct platform_device *pdev)
 	if (us_prox) {
 		rcu_assign_pointer(g_us_prox, NULL);
 		synchronize_rcu();
+		cancel_delayed_work_sync(&us_prox->defer_enable_work);
 		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		kref_put(&us_prox->refcount, us_prox_data_release);
 	}
