@@ -52,6 +52,7 @@ struct us_prox_data {
 	/* for proximity sensor */
 	struct iio_dev		*prox_idev;
 	struct delayed_work	keepalive_work;
+	struct delayed_work	heal_work;
 	int			keepalive_active;
 	int			prox_enabled;
 	int			raw_data;
@@ -271,20 +272,31 @@ static void us_prox_keepalive_work(struct work_struct *work)
 {
 	struct us_prox_data *data = container_of(work, struct us_prox_data,
 					keepalive_work.work);
-	struct iio_dev *idev = data->prox_idev;
 
 	us_prox_push_event(data, 0);
-
-	/* Re-enable buffer if HAL disabled it during init.
-	 * iio_update_buffers is a no-op when buffer is already active
-	 * (verified in iio_verify_update — sets insert_buffer=NULL, returns 0).
-	 */
-	if (idev && idev->buffer)
-		iio_update_buffers(idev, idev->buffer, NULL);
-
 	if (data->keepalive_active)
 		schedule_delayed_work(&data->keepalive_work,
 			msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+}
+static void us_prox_heal_work(struct work_struct *work)
+{
+	struct us_prox_data *data = container_of(work, struct us_prox_data,
+					heal_work.work);
+	struct iio_dev *idev = data->prox_idev;
+
+	if (!idev || !idev->buffer)
+		goto resched;
+
+	/* Check if buffer is disabled without taking locks.
+	 * buffer_list empty = inactive. iio_update_buffers is a safe no-op
+	 * when buffer is active (verified in iio_verify_update).
+	 */
+	if (list_empty(&idev->buffer->buffer_list))
+		iio_update_buffers(idev, idev->buffer, NULL);
+
+resched:
+	schedule_delayed_work(&data->heal_work,
+		msecs_to_jiffies(10000));
 }
 
 static int us_proximity_iio_setup(struct us_prox_data *data)
@@ -338,6 +350,8 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 		pr_err("Proximity buffer auto-enable failed: %d\n", ret);
 	else
 		pr_info("Proximity buffer auto-enabled\n");
+	schedule_delayed_work(&data->heal_work,
+		msecs_to_jiffies(10000));
 
 	return 0;
 free_trigger_p:
@@ -382,6 +396,7 @@ static int us_prox_probe(struct platform_device *pdev)
 	mutex_init(&us_prox->mutex);
 	kref_init(&us_prox->refcount);
 	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
+	INIT_DELAYED_WORK(&us_prox->heal_work, us_prox_heal_work);
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
@@ -403,6 +418,7 @@ static int us_prox_remove(struct platform_device *pdev)
 	if (us_prox) {
 		rcu_assign_pointer(g_us_prox, NULL);
 		synchronize_rcu();
+		cancel_delayed_work_sync(&us_prox->heal_work);
 		cancel_delayed_work_sync(&us_prox->keepalive_work);
 		kref_put(&us_prox->refcount, us_prox_data_release);
 	}
