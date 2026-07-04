@@ -14,3 +14,4 @@ obj-$(CONFIG_SX9500)		+= sx9500.o
 obj-$(CONFIG_US_PROXIMITY)	+= us_prox.o
 
 obj-y += inv_ch101/
+obj-y += us_prox.o
