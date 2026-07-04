@@ -111,7 +111,7 @@ jobs:
           echo "=== QA GATES PASSED ==="
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-artifacts
           path: |
@@ -228,7 +228,7 @@ jobs:
             bash /tmp/package_kernel.sh
 
       - name: Upload ZIP
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: anykernel3-zip
           path: build/*.zip
@@ -251,7 +251,7 @@ jobs:
 
       - name: Create GitHub Release
         if: inputs.release == true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: "RedAlpha PocoF3 ${{ env.KSU_LABEL }} - ${{ env.BUILD_DATE }}"
