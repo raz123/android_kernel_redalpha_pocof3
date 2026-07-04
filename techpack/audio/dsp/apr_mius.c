@@ -394,6 +394,11 @@ int32_t mius_process_apr_payload(uint32_t *payload)
 		ret = max_copy;
 	}
 
+	/* Feed proximity data to IIO buffer for HAL polling
+	 * via /dev/iio:device3. payload[3] holds 0 (FAR) or 1 (NEAR).
+	 */
+	us_afe_callback(payload[3] ? 1 : 0);
+
 	return ret;
 }
 

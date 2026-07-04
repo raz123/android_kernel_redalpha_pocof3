@@ -98,11 +98,8 @@ static void us_prox_push_event(struct us_prox_data *data, int value)
 
 	get_monotonic_boottime(&ts);
 	el_data.timestamp = timespec_to_ns(&ts);
-
-	if (!value)
-		el_data.data1 = 0;
-	else
-		el_data.data1 = 5;
+	el_data.data1 = value ? 5 : 0;
+	data->raw_data = el_data.data1;
 
 	iio_push_to_buffers(data->prox_idev, (unsigned char *)&el_data);
 	if (data->prox_idev->buffer)
@@ -186,6 +183,8 @@ int us_afe_callback(int data)
 	if (!prox)
 		return 0;
 
+
+	prox->raw_data = el_data.data1;
 	if (prox->prox_idev->buffer) {
 		ret = iio_push_to_buffers(prox->prox_idev,
 					 (unsigned char *)&el_data);
@@ -298,7 +297,7 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 	idev->dev.parent = &(data->pdev->dev);
 	idev->info = &us_proximity_info;
 	idev->name = US_PROX_IIO_NAME;
-	idev->modes = INDIO_DIRECT_MODE;
+	idev->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_SOFTWARE;
 
 	priv_data = iio_priv(idev);
 	*priv_data = data;
@@ -317,8 +316,19 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 		pr_err("Proximity IIO register fail\n");
 		goto free_trigger_p;
 	}
-	return ret;
 
+	/* Auto-enable buffer so iio_push_to_buffers() works
+	 * even when userspace HAL never writes buffer/enable=1.
+	 * Without activation, buffer_list is empty and the
+	 * kfifo stays empty — poll() always returns 0.
+	 */
+	set_bit(0, idev->buffer->scan_mask);
+	idev->buffer->scan_timestamp = true;
+	ret = iio_update_buffers(idev, idev->buffer, NULL);
+	if (ret)
+		pr_err("Proximity buffer auto-enable failed: %d\n", ret);
+
+	return 0;
 free_trigger_p:
 	if (idev->trig) {
 		iio_trigger_unregister(idev->trig);
