@@ -44,6 +44,10 @@
 #include "cs35l41.h"
 #include <sound/cs35l41.h>
 #include "send_data_to_xlog.h"
+static DEFINE_MUTEX(cs35l41_reset_lock);
+static struct gpio_desc *cs35l41_shared_reset;
+static int cs35l41_reset_refcount;
+
 static const char * const cs35l41_supplies[] = {
 	"VA",
 	"VP",
@@ -2343,25 +2347,37 @@ int cs35l41_probe(struct cs35l41_private *cs35l41,
 	}
 
 /* returning NULL can be an option if in stereo mode */
-	cs35l41->reset_gpio = devm_gpiod_get_optional(cs35l41->dev, "reset",
-							GPIOD_OUT_LOW);
-	if (IS_ERR(cs35l41->reset_gpio)) {
-		ret = PTR_ERR(cs35l41->reset_gpio);
-		cs35l41->reset_gpio = NULL;
-		if (ret == -EBUSY) {
-			dev_info(cs35l41->dev,
-				 "Reset line busy, assuming shared reset\n");
-		} else {
-			dev_err(cs35l41->dev,
-				"Failed to get reset GPIO: %d\n", ret);
-			goto err;
+	mutex_lock(&cs35l41_reset_lock);
+	if (cs35l41_reset_refcount == 0) {
+		cs35l41_shared_reset = gpiod_get_optional(cs35l41->dev,
+							  "reset",
+							  GPIOD_OUT_LOW);
+		if (IS_ERR(cs35l41_shared_reset)) {
+			ret = PTR_ERR(cs35l41_shared_reset);
+			cs35l41_shared_reset = NULL;
+			mutex_unlock(&cs35l41_reset_lock);
+			if (ret == -EBUSY) {
+				dev_info(cs35l41->dev,
+					 "Reset line busy, assuming shared reset\n");
+			} else {
+				dev_err(cs35l41->dev,
+					"Failed to get reset GPIO: %d\n", ret);
+				goto err;
+			}
+			goto reset_done;
 		}
 	}
+	cs35l41_reset_refcount++;
+	cs35l41->reset_gpio = cs35l41_shared_reset;
+	mutex_unlock(&cs35l41_reset_lock);
+
 	if (cs35l41->reset_gpio) {
 		/* satisfy minimum reset pulse width spec */
 		usleep_range(2000, 2100);
 		gpiod_set_value_cansleep(cs35l41->reset_gpio, 1);
 	}
+
+reset_done:
 
 	usleep_range(2000, 2100);
 
@@ -2500,6 +2516,26 @@ int cs35l41_probe(struct cs35l41_private *cs35l41,
 err:
 	regulator_bulk_disable(cs35l41->num_supplies, cs35l41->supplies);
 	return ret;
+}
+
+int cs35l41_remove(struct cs35l41_private *cs35l41)
+{
+	mutex_lock(&cs35l41_reset_lock);
+	cs35l41_reset_refcount--;
+	if (cs35l41_reset_refcount == 0) {
+		if (cs35l41_shared_reset) {
+			gpiod_set_value_cansleep(cs35l41_shared_reset, 0);
+			gpiod_put(cs35l41_shared_reset);
+			cs35l41_shared_reset = NULL;
+		}
+	}
+	mutex_unlock(&cs35l41_reset_lock);
+
+	regmap_write(cs35l41->regmap, CS35L41_IRQ1_MASK1, 0xFFFFFFFF);
+	wm_adsp2_remove(&cs35l41->dsp);
+	regulator_bulk_disable(cs35l41->num_supplies, cs35l41->supplies);
+	snd_soc_unregister_component(cs35l41->dev);
+	return 0;
 }
 
 MODULE_DESCRIPTION("ASoC CS35L41 driver");

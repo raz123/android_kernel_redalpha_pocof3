@@ -91,39 +91,19 @@ unsigned char mi_page1_data[16] = { 0x00 };
 unsigned char mi_counter[16] = { 0x00 };
 int mi_auth_result = 0x00;
 
-static void set_sched_affinity_to_current(void)
+static void set_sched_affinity_to_online(void)
 {
 	long ret;
-	int current_cpu;
 
-	preempt_disable();
-	current_cpu = smp_processor_id();
-	ret = sched_setaffinity(CURRENT_DS28E16_TASK, cpumask_of(current_cpu));
-	preempt_enable();
-	if (ret) {
-		pr_info("Setting cpu affinity to current cpu failed(%ld) in %s.\n",
+	ret = sched_setaffinity(CURRENT_DS28E16_TASK, cpu_online_mask);
+	if (ret)
+		pr_info("Setting cpu affinity to online cpus failed(%ld) in %s.\n",
 			ret, __func__);
-	} else {
-		pr_info("Setting cpu affinity to current cpu(%d) in %s.\n",
-			current_cpu, __func__);
-	}
-}
-
-static void set_sched_affinity_to_all(void)
-{
-	long ret;
-	cpumask_t dstp;
-
-	cpumask_setall(&dstp);
-	ret = sched_setaffinity(CURRENT_DS28E16_TASK, &dstp);
-	if (ret) {
-		pr_info("Setting cpu affinity to all valid cpus failed(%ld) in %s.\n",
-			ret, __func__);
-	} else {
-		pr_info("Setting cpu affinity to all valid cpus in %s.\n",
+	else
+		pr_info("Setting cpu affinity to online cpus in %s.\n",
 			__func__);
-	}
 }
+
 
 unsigned char crc_low_first(unsigned char *ptr, unsigned char len)
 {
@@ -187,16 +167,16 @@ static int ds28el16_Read_RomID_retry(unsigned char *RomID)
 {
 	int i;
 
-	set_sched_affinity_to_current();
+	set_sched_affinity_to_online();
 	for (i = 0; i < GET_ROM_ID_RETRY; i++) {
 		ds_info("read rom id communication start %d...\n", i);
 
 		if (Read_RomID(RomID) == DS_TRUE) {
-			set_sched_affinity_to_all();
+			set_sched_affinity_to_online();
 			return DS_TRUE;
 		}
 	}
-	set_sched_affinity_to_all();
+	set_sched_affinity_to_online();
 	return DS_FALSE;
 }
 
@@ -204,16 +184,16 @@ static int ds28el16_get_page_status_retry(unsigned char *data)
 {
 	int i;
 
-	set_sched_affinity_to_current();
+	set_sched_affinity_to_online();
 	for (i = 0; i < GET_BLOCK_STATUS_RETRY; i++) {
 		ds_info("read page status communication start... %d\n", i);
 
 		if (DS28E16_cmd_readStatus(data) == DS_TRUE) {
-			set_sched_affinity_to_all();
+			set_sched_affinity_to_online();
 			return DS_TRUE;
 		}
 	}
-	set_sched_affinity_to_all();
+	set_sched_affinity_to_online();
 
 	return DS_FALSE;
 }
@@ -225,16 +205,16 @@ static int ds28el16_get_page_data_retry(int page, unsigned char *data)
 	if (page >= MAX_PAGENUM)
 		return DS_FALSE;
 
-	set_sched_affinity_to_current();
+	set_sched_affinity_to_online();
 	for (i = 0; i < GET_USER_MEMORY_RETRY; i++) {
 		ds_dbg("read page data communication start... %d\n", i);
 
 		if (DS28E16_cmd_readMemory(page, data) == DS_TRUE) {
-			set_sched_affinity_to_all();
+			set_sched_affinity_to_online();
 			return DS_TRUE;
 		}
 	}
-	set_sched_affinity_to_all();
+	set_sched_affinity_to_online();
 
 	return DS_FALSE;
 }
@@ -978,19 +958,19 @@ static int ds28el16_do_authentication(struct ds28e16_data *data)
 
 	ds_log("%s enter\n", __func__);
 
-	set_sched_affinity_to_current();
+	set_sched_affinity_to_online();
 	for (i = 0; i < GET_VERIFY_RETRY; i++) {
 		result = AuthenticateDS28E16(auth_ANON, auth_BDCONST, 0,
 					     pagenumber, challenge,
 					     session_seed, S_secret);
 		if (result == DS_TRUE) {
 			data->batt_verified = 1;
-			set_sched_affinity_to_all();
+			set_sched_affinity_to_online();
 			ds_log("%s battery verify ok[%d]", __func__, result);
 			return result;
 		}
 	}
-	set_sched_affinity_to_all();
+	set_sched_affinity_to_online();
 
 	if (result != DS_TRUE) {
 		data->batt_verified = 0;
