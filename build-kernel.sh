@@ -122,6 +122,7 @@ fi
 find out/ -name "*.ko" -exec cp {} out/modules/ \; 2>/dev/null || true
 [ -f "zram-resize.sh" ] && cp zram-resize.sh out/modules/
 [ -f "uclamp_tuning.sh" ] && cp uclamp_tuning.sh out/modules/
+[ -f "vm_tuning.sh" ] && cp vm_tuning.sh out/modules/
 # ccache stats
 echo "=== ccache stats ==="
 ccache -s 2>/dev/null | grep -E 'Hits:|Misses:|Cache size' || echo "ccache stats unavailable"
