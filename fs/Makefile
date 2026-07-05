@@ -17,10 +17,6 @@ obj-y :=	open.o read_write.o file_table.o super.o \
 
 obj-$(CONFIG_KSU_SUSFS) += susfs.o
 
-ifneq ($(CONFIG_KSU_SUSFS),y)
-obj-y += susfs_stub.o
-endif
-
 ifeq ($(CONFIG_BLOCK),y)
 obj-y +=	buffer.o block_dev.o direct-io.o mpage.o
 else
