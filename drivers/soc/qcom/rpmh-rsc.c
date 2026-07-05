@@ -479,6 +479,8 @@ int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 					    drv->name, msg->cmds[0].addr);
 			udelay(10);
 			count++;
+			if (count > 500 && !in_long_press)
+				break;
 		}
 		if ((count == 50000) && (in_long_press)) {
 			printk(KERN_ERR "Long Press :TCS Busy but log saved!");
