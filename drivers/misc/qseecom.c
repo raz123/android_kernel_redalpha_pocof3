@@ -508,8 +508,10 @@ static void __qseecom_free_tzbuf(struct qtee_shm *shm)
 	qtee_shmbridge_free_shm(shm);
 }
 
-#if defined(CONFIG_DEBUG_FS) || defined(CONFIG_MSM_TZ_LOG)
+#if defined(CONFIG_MSM_TZ_LOG)
 extern void read_qseelog_wakeup(void);
+#elif defined(CONFIG_DEBUG_FS)
+static inline void read_qseelog_wakeup(void) { }
 #endif
 
 static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
