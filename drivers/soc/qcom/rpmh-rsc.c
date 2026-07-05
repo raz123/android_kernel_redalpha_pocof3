@@ -7,6 +7,7 @@
 
 #include <linux/atomic.h>
 #include <linux/delay.h>
+#include <linux/jiffies.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/ipc_logging.h>
@@ -460,11 +461,10 @@ done_write:
  * Return: 0 on success, -EINVAL on error.
  * Note: This call blocks until a valid data is written to the TCS.
  */
- extern int in_long_press;
 int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 {
 	int ret;
-	int count = 0;
+	unsigned long deadline;
 
 	if (!msg || !msg->cmds || !msg->num_cmds ||
 	    msg->num_cmds > MAX_RPMH_PAYLOAD) {
@@ -472,21 +472,17 @@ int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg)
 		return -EINVAL;
 	}
 
+	deadline = jiffies + msecs_to_jiffies(2000);
 	do {
 		ret = tcs_write(drv, msg);
 		if (ret == -EBUSY) {
-			pr_info_ratelimited("DRV:%s TCS Busy, retrying RPMH message send: addr=%#x\n",
-					    drv->name, msg->cmds[0].addr);
+			if (time_after(jiffies, deadline)) {
+				pr_err("RPMh TCS timeout: addr=%#x\n",
+				       msg->cmds[0].addr);
+				return -ETIMEDOUT;
+			}
 			udelay(10);
-			count++;
-			if (count > 500 && !in_long_press)
-				break;
 		}
-		if ((count == 50000) && (in_long_press)) {
-			printk(KERN_ERR "Long Press :TCS Busy but log saved!");
-			break;
-		}
-
 	} while (ret == -EBUSY);
 
 	return ret;
