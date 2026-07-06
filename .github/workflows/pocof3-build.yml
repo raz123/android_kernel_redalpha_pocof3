@@ -112,29 +112,19 @@ jobs:
           [ "$FAILED" -eq 1 ] && { echo "=== QA GATES FAILED ==="; exit 1; }
           echo "=== QA GATES PASSED ==="
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: build-artifacts
-          path: |
-            build/out/arch/arm64/boot/Image
-            build/out/arch/arm64/boot/Image.gz-dtb
-            build/out/arch/arm64/boot/Image.gz
-            build/out/modules/
-          if-no-files-found: error
-
       - name: Package AnyKernel3 ZIP
         working-directory: build
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           KSU_ENABLED: ${{ inputs.ksu }}
-        run: bash scripts/package-kernel.sh
-
+        run: |
+          rm -f rp-pocof3_*.zip
+          bash scripts/package-kernel.sh
       - name: Upload ZIP
         uses: actions/upload-artifact@v6
         with:
           name: anykernel3-zip
-          path: build/*.zip
+          path: build/rp-pocof3_*.zip
           if-no-files-found: error
 
       - name: Set release env
