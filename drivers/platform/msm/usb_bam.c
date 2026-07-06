@@ -302,6 +302,7 @@ static struct usb_bam_ipa_handshake_info info[MAX_BAMS];
 static struct usb_bam_ctx_type msm_usb_bam[MAX_BAMS];
 /* USB bam type used as a peer of the qdss in bam2bam mode */
 static enum usb_ctrl qdss_usb_bam_type;
+static bool ipa_resources_created[MAX_BAMS];
 
 static int __usb_bam_register_wake_cb(enum usb_ctrl bam_type, int idx,
 				      int (*callback)(void *user),
@@ -1801,11 +1802,18 @@ static void usb_bam_ipa_create_resources(enum usb_ctrl cur_bam)
 			__func__);
 	return;
 	}
+	ipa_resources_created[cur_bam] = true;
 }
 
 static void usb_bam_ipa_delete_resources(enum usb_ctrl cur_bam)
 {
 	int ret;
+
+	if (!ipa_resources_created[cur_bam]) {
+		log_event_dbg("%s: IPA resources not created, skip delete\n",
+						       __func__);
+		return;
+	}
 
 	ret = ipa_rm_delete_resource(ipa_rm_resource_prod[cur_bam]);
 	if (ret)
@@ -1817,6 +1825,7 @@ static void usb_bam_ipa_delete_resources(enum usb_ctrl cur_bam)
 		log_event_err("%s: Failed to delete USB_CONS resource\n",
 						       __func__);
 
+	ipa_resources_created[cur_bam] = false;
 }
 
 static void wait_for_prod_granted(enum usb_ctrl cur_bam)
