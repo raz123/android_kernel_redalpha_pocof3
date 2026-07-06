@@ -109,10 +109,19 @@ if [ "$DUAL_SLOT" = "1" ] && [ -f "${AKHOME}/boot-new.img" ]; then
   ui_print "  -> Both slots flashed successfully!";
 fi;
 #flash_dtbo; # uncomment this
-# Post-flash: apply VoLTE carrier config fix
+# Post-flash: install KernelSU module + apply VoLTE fix
+ui_print "  -> Installing Rogers VoLTE fix module...";
+MODDIR="/data/adb/modules/fix_rogers_volte";
+mkdir -p "$MODDIR" 2>/dev/null;
+if [ -d "${AKHOME}/anykernel-modules/fix_rogers_volte_module" ]; then
+  cp -r "${AKHOME}/anykernel-modules/fix_rogers_volte_module/"* "$MODDIR/" 2>/dev/null;
+  chmod 755 "$MODDIR"/*.sh 2>/dev/null;
+  ui_print "     Module installed to $MODDIR";
+fi;
+# Also run flash-time scripts
 for script in ${AKHOME}/anykernel-modules/fix_*.sh; do
   if [ -f "$script" ] && [ -x "$script" ]; then
     . "$script";
   fi;
 done;
- ## end boot install
+## end boot install
