@@ -1061,6 +1061,7 @@ static int cs35l41_main_amp_event(struct snd_soc_dapm_widget *w,
 
 		if (!pdn) {
 			cs35l41->dsp.running = false;
+			cs35l41->dsp.booted = false;
 			dev_warn(cs35l41->dev, "PDN failed, resetting\n");
 			/* Force clean state via hardware reset pulse */
 			if (cs35l41->reset_gpio) {
