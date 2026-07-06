@@ -28,7 +28,11 @@ jobs:
           if [ -d "${{ github.workspace }}/build/.git" ]; then
             cd ${{ github.workspace }}/build
             git fetch --depth=1 origin ${{ github.ref_name }}
+            NEW_SHA=$(git rev-parse FETCH_HEAD)
+            OLD_SHA=$(git rev-parse HEAD)
             git reset --hard FETCH_HEAD
+            # Clean stale build artifacts if source changed
+            [ "$NEW_SHA" != "$OLD_SHA" ] && rm -rf out
           else
             sudo rm -rf ${{ github.workspace }}/build || true
             git clone --depth=1 https://github.com/${{ github.repository }}.git -b ${{ github.ref_name }} ${{ github.workspace }}/build
