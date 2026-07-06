@@ -526,7 +526,7 @@ this file is for attribution only of alioth
 	qcom,auto-recharge-soc = <99>;
 	qcom,chg-term-src = <1>;
 	qcom,chg-term-current-ma = <(-220)>;
-	//qcom,step-charging-enable;
+	qcom,step-charging-enable;
 	qcom,sw-jeita-enable;
 	qcom,chg-warm-th= <500>;
 	qcom,chg-cool-th= <150>;
