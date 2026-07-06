@@ -470,9 +470,9 @@ this file is for attribution only of alioth
 		cirrus,boost-peak-milliamp = <4000>;
 		cirrus,boost-ind-nanohenry = <1000>;
 		cirrus,boost-cap-microfarad = <15>;
-		cirrus,asp-sdout-hiz = <1>;
-		cirrus,right-channel-amp;
-		//sound-name-prefix = "RCV";
+		cirrus,asp-sdout-hiz = <3>;
+		//cirrus,right-channel-amp;
+		sound-name-prefix = "RCV";
 		cirrus,gpio-config2 {
 			cirrus,gpio-src-select = <0x4>;
 			cirrus,gpio-output-enable;
@@ -493,9 +493,9 @@ this file is for attribution only of alioth
 		cirrus,boost-peak-milliamp = <4000>;
 		cirrus,boost-ind-nanohenry = <1000>;
 		cirrus,boost-cap-microfarad = <15>;
-		//cirrus,right-channel-amp;
-		cirrus,asp-sdout-hiz = <1>;
-		sound-name-prefix = "RCV";
+		cirrus,right-channel-amp;
+		cirrus,asp-sdout-hiz = <3>;
+		//sound-name-prefix = "RCV";
 		cirrus,gpio-config2 {
 			cirrus,gpio-src-select = <0x4>;
 			cirrus,gpio-output-enable;
