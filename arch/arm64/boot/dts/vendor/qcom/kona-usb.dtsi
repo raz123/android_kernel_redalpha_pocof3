@@ -90,6 +90,8 @@
 			snps,hird-threshold = /bits/ 8 <0x10>;
 			snps,usb3-u1u2-disable;
 			usb-core-id = <0>;
+			clocks = <&clock_gcc GCC_USB3_PRIM_PHY_AUX_CLK>;
+			clock-names = "ref";
 			tx-fifo-resize;
 			maximum-speed = "super-speed-plus";
 			dr_mode = "drd";
