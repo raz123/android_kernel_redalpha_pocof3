@@ -1,6 +1,8 @@
 name: PocoF3 Build
 
 on:
+  push:
+    branches: [f2fs-fix-ksu]
   workflow_dispatch:
     inputs:
       ksu:
