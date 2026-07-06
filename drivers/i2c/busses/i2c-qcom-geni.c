@@ -126,6 +126,7 @@ struct geni_i2c_dev {
 	enum i2c_se_mode se_mode;
 	bool cmd_done;
 	bool is_shared;
+	bool bus_recovery;
 	u32 dbg_num;
 	struct dbg_buf_ctxt *dbg_buf_ptr;
 };
@@ -246,7 +247,7 @@ static irqreturn_t geni_i2c_irq(int irq, void *dev)
 	u32 dma = readl_relaxed(gi2c->base + SE_GENI_DMA_MODE_EN);
 	struct i2c_msg *cur = gi2c->cur;
 
-	if (!cur) {
+	if (!cur && !gi2c->bus_recovery) {
 		geni_se_dump_dbg_regs(&gi2c->i2c_rsc, gi2c->base, gi2c->ipcl);
 		GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev, "Spurious irq\n");
 		goto irqret;
@@ -279,8 +280,8 @@ static irqreturn_t geni_i2c_irq(int irq, void *dev)
 		goto irqret;
 	}
 
-	if (((m_stat & M_RX_FIFO_WATERMARK_EN) ||
-		(m_stat & M_RX_FIFO_LAST_EN)) && (cur->flags & I2C_M_RD)) {
+	if (cur && (((m_stat & M_RX_FIFO_WATERMARK_EN) ||
+		(m_stat & M_RX_FIFO_LAST_EN)) && (cur->flags & I2C_M_RD))) {
 		u32 rxcnt = rx_st & RX_FIFO_WC_MSK;
 
 		for (j = 0; j < rxcnt; j++) {
@@ -298,7 +299,7 @@ static irqreturn_t geni_i2c_irq(int irq, void *dev)
 				break;
 			}
 		}
-	} else if ((m_stat & M_TX_FIFO_WATERMARK_EN) &&
+	} else if (cur && (m_stat & M_TX_FIFO_WATERMARK_EN) &&
 					!(cur->flags & I2C_M_RD)) {
 		for (j = 0; j < gi2c->tx_wm; j++) {
 			u32 temp = 0;
@@ -934,6 +935,62 @@ static u32 geni_i2c_func(struct i2c_adapter *adap)
 	return I2C_FUNC_I2C | (I2C_FUNC_SMBUS_EMUL & ~I2C_FUNC_SMBUS_QUICK);
 }
 
+static int geni_i2c_recover_bus(struct i2c_adapter *adap)
+{
+	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
+	int ret, timeout;
+
+	ret = pm_runtime_get_sync(gi2c->dev);
+	if (ret < 0) {
+		pm_runtime_put_noidle(gi2c->dev);
+		return ret;
+	}
+
+	gi2c->err = 0;
+	gi2c->bus_recovery = true;
+	reinit_completion(&gi2c->xfer);
+
+	/*
+	 * Issue I2C_BUS_CLEAR command via GENI SE. This generates 9 clock
+	 * pulses on SCL to release any stuck slave that may be holding SDA
+	 * low, followed by a STOP condition. The GENI SE hardware handles
+	 * the actual bit-bang protocol.
+	 */
+	geni_se_select_mode(gi2c->base, FIFO_MODE);
+	geni_setup_m_cmd(gi2c->base, I2C_BUS_CLEAR, 0);
+	mb();
+
+	timeout = wait_for_completion_timeout(&gi2c->xfer, gi2c->xfer_timeout);
+	if (!timeout) {
+		dev_err(gi2c->dev, "Bus clear timed out\n");
+		ret = -ETIMEDOUT;
+		/* Abort the stuck command */
+		reinit_completion(&gi2c->xfer);
+		geni_cancel_m_cmd(gi2c->base);
+		wait_for_completion_timeout(&gi2c->xfer, HZ);
+	} else {
+		ret = gi2c->err;
+		if (ret)
+			dev_err(gi2c->dev, "Bus clear failed: %d\n", ret);
+		else
+			dev_dbg(gi2c->dev, "Bus clear succeeded\n");
+	}
+
+	gi2c->bus_recovery = false;
+	gi2c->cur = NULL;
+	gi2c->err = 0;
+
+	pm_runtime_mark_last_busy(gi2c->dev);
+	pm_runtime_put_autosuspend(gi2c->dev);
+
+	return ret;
+}
+
+static const struct i2c_bus_recovery_info geni_i2c_bus_recovery_info = {
+	.recover_bus = geni_i2c_recover_bus,
+};
+
+
 static const struct i2c_algorithm geni_i2c_algo = {
 	.master_xfer	= geni_i2c_xfer,
 	.functionality	= geni_i2c_func,
@@ -1082,6 +1139,7 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	gi2c->adap.dev.of_node = pdev->dev.of_node;
 
 	strlcpy(gi2c->adap.name, "Geni-I2C", sizeof(gi2c->adap.name));
+	gi2c->adap.bus_recovery_info = &geni_i2c_bus_recovery_info;
 
 	pm_runtime_set_suspended(gi2c->dev);
 	pm_runtime_set_autosuspend_delay(gi2c->dev, I2C_AUTO_SUSPEND_DELAY);
