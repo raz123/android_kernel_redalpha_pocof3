@@ -4293,6 +4293,7 @@
 		iommus = <&apps_smmu 0x0586 0x0011>,
 			 <&apps_smmu 0x0596 0x0011>;
 		qcom,iommu-dma = "atomic";
+		qcom,ce-opp-freq = <100000000>;
 
 		qcom_cedev_ns_cb {
 			compatible = "qcom,qcedev,context-bank";
@@ -4344,6 +4345,7 @@
 		iommus = <&apps_smmu 0x0584 0x0011>,
 			 <&apps_smmu 0x0594 0x0011>;
 		qcom,iommu-dma = "atomic";
+		qcom,ce-opp-freq = <100000000>;
 	};
 
 	qcom_msmhdcp: qcom,msm_hdcp {
