@@ -31,6 +31,8 @@
 #include <linux/regmap.h>
 #include <linux/random.h>
 #include <linux/sched.h>
+#include <linux/cpumask.h>
+#include <linux/cpu.h>
 
 #define ds_info pr_info
 #define ds_dbg pr_debug
@@ -94,14 +96,25 @@ int mi_auth_result = 0x00;
 static void set_sched_affinity_to_online(void)
 {
 	long ret;
+	struct cpumask online_mask;
+	int retries = 3;
 
-	ret = sched_setaffinity(CURRENT_DS28E16_TASK, cpu_online_mask);
+	do {
+		get_online_cpus();
+		cpumask_copy(&online_mask, cpu_online_mask);
+		put_online_cpus();
+
+		ret = sched_setaffinity(CURRENT_DS28E16_TASK, &online_mask);
+		if (ret == 0)
+			break;
+
+		if (retries > 1)
+			msleep(2);
+	} while (--retries > 0);
+
 	if (ret)
-		pr_info("Setting cpu affinity to online cpus failed(%ld) in %s.\n",
-			ret, __func__);
-	else
-		pr_info("Setting cpu affinity to online cpus in %s.\n",
-			__func__);
+		pr_info("Setting cpu affinity to online cpus failed(%ld).\n",
+			ret);
 }
 
 
