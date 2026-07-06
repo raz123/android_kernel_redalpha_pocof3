@@ -1,0 +1,6 @@
+id=fix_rogers_volte
+name=Rogers VoLTE Fix
+version=1.0
+versionCode=1
+author=RedAlpha
+description=Patches carrier config to enable VoLTE for Rogers (MCC 302/MNC 720)

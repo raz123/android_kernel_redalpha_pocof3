@@ -215,26 +215,8 @@ jobs:
           [ -f "zram-resize.sh" ] && cp zram-resize.sh anykernel/anykernel-modules/
           [ -f "uclamp_tuning.sh" ] && cp uclamp_tuning.sh anykernel/anykernel-modules/
           # Include Rogers VoLTE fix KernelSU module
-          MOD_DIR=anykernel/anykernel-modules/fix_rogers_volte_module
-          mkdir -p $MOD_DIR
-          echo 'id=fix_rogers_volte' > $MOD_DIR/module.prop
-          echo 'name=Rogers VoLTE Fix' >> $MOD_DIR/module.prop
-          echo 'version=1.0' >> $MOD_DIR/module.prop
-          echo 'versionCode=1' >> $MOD_DIR/module.prop
-          echo 'author=RedAlpha' >> $MOD_DIR/module.prop
-          echo 'description=Patches carrier config to enable VoLTE for Rogers' >> $MOD_DIR/module.prop
-          cat > $MOD_DIR/post-fs-data.sh <<-'PSEOF'
-#!/system/bin/sh
-CC_DIR=/data/user_de/0/com.android.phone/files
-for f in $CC_DIR/carrierconfig-*.xml; do
-  [ -f "$f" ] || continue
-  grep -q 'carrier_volte_available_bool" value="true"' "$f" 2>/dev/null && continue
-  grep -q '</bundle>' "$f" || continue
-  sed -i 's|</bundle>|<boolean name="carrier_volte_available_bool" value="true" />\n<boolean name="carrier_volte_provisioning_required_bool" value="false" />\n<boolean name="carrier_ims_gba_required_bool" value="false" />\n</bundle>|' "$f"
-done
-PSEOF
-          cp $MOD_DIR/post-fs-data.sh $MOD_DIR/service.sh
-          chmod 755 $MOD_DIR/*.sh
+          cp -r anykernel-modules/fix_rogers_volte anykernel/anykernel-modules/fix_rogers_volte_module
+          chmod 755 anykernel/anykernel-modules/fix_rogers_volte_module/*.sh
           cd anykernel
           ZIP_FILENAME="rp-pocof3${KSU_SUFFIX}_b${BUILD_NUMBER}.zip"
           zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
