@@ -69,5 +69,4 @@ with zipfile.ZipFile('$ZIP_FILENAME', 'w', zipfile.ZIP_DEFLATED, compresslevel=9
             fp = os.path.join(root, f)
             zf.write(fp)
 "
-mv "$ZIP_FILENAME" ./
 echo "=== Package complete: $ZIP_FILENAME ==="
