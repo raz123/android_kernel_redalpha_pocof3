@@ -223,7 +223,7 @@ jobs:
           echo 'versionCode=1' >> $MOD_DIR/module.prop
           echo 'author=RedAlpha' >> $MOD_DIR/module.prop
           echo 'description=Patches carrier config to enable VoLTE for Rogers' >> $MOD_DIR/module.prop
-          cat > $MOD_DIR/post-fs-data.sh << 'PSEOF'
+          cat > $MOD_DIR/post-fs-data.sh <<-'PSEOF'
 #!/system/bin/sh
 CC_DIR=/data/user_de/0/com.android.phone/files
 for f in $CC_DIR/carrierconfig-*.xml; do
