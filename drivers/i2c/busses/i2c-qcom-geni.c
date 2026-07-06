@@ -986,7 +986,7 @@ static int geni_i2c_recover_bus(struct i2c_adapter *adap)
 	return ret;
 }
 
-static const struct i2c_bus_recovery_info geni_i2c_bus_recovery_info = {
+static struct i2c_bus_recovery_info geni_i2c_bus_recovery_info = {
 	.recover_bus = geni_i2c_recover_bus,
 };
 
