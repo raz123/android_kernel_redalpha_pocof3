@@ -124,17 +124,11 @@ jobs:
           if-no-files-found: error
 
       - name: Package AnyKernel3 ZIP
-        run: |
-          docker run --rm \
-            --network=host \
-            -v ${{ github.workspace }}/build:/workspace \
-            -w /workspace \
-            -e BUILD_NUMBER=${{ github.run_number }} \
-            -e KSU_ENABLED=${{ inputs.ksu }} \
-            -e REPO_URL=https://github.com/${{ github.repository }}.git \
-            -e BRANCH=${{ github.ref_name }} \
-            kernel-builder \
-            bash scripts/package-kernel.sh
+        working-directory: build
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          KSU_ENABLED: ${{ inputs.ksu }}
+        run: bash scripts/package-kernel.sh
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v6
