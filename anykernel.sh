@@ -118,6 +118,14 @@ if [ -d "${AKHOME}/anykernel-modules/fix_rogers_volte_module" ]; then
   chmod 755 "$MODDIR"/*.sh 2>/dev/null;
   ui_print "     Module installed to $MODDIR";
 fi;
+ui_print "  -> Installing VM Tuning module...";
+VMMODDIR="/data/adb/modules/fix_vm_tuning";
+mkdir -p "$VMMODDIR" 2>/dev/null;
+if [ -d "${AKHOME}/anykernel-modules/fix_vm_tuning" ]; then
+  cp -r "${AKHOME}/anykernel-modules/fix_vm_tuning/"* "$VMMODDIR/" 2>/dev/null;
+  chmod 755 "$VMMODDIR"/*.sh 2>/dev/null;
+  ui_print "     VM Tuning module installed to $VMMODDIR";
+fi;
 # Also run flash-time scripts
 for script in ${AKHOME}/anykernel-modules/fix_*.sh; do
   if [ -f "$script" ] && [ -x "$script" ]; then
