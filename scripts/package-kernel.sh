@@ -57,8 +57,17 @@ if [ -d ".volte_backup" ]; then
   chmod 755 anykernel/anykernel-modules/fix_rogers_volte_module/*.sh 2>/dev/null || true
 fi
 
-# Build ZIP
+# Build ZIP (use python zipfile — zip may not be installed)
 ZIP_FILENAME="rp-pocof3${KSU_SUFFIX}_b${BUILD_NUMBER}.zip"
-zip -r9 "$ZIP_FILENAME" anykernel/ -x 'anykernel/.git' 'anykernel/.gitignore'
+python3 -c "
+import zipfile, os
+with zipfile.ZipFile('$ZIP_FILENAME', 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    for root, dirs, files in os.walk('anykernel'):
+        dirs[:] = [d for d in dirs if d != '.git']
+        for f in files:
+            if f == '.gitignore': continue
+            fp = os.path.join(root, f)
+            zf.write(fp)
+"
 mv "$ZIP_FILENAME" ./
 echo "=== Package complete: $ZIP_FILENAME ==="

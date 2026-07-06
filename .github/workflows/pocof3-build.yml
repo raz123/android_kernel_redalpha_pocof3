@@ -128,9 +128,7 @@ jobs:
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           KSU_ENABLED: ${{ inputs.ksu }}
-        run: |
-          sudo pacman -S --noconfirm zip
-          bash scripts/package-kernel.sh
+        run: bash scripts/package-kernel.sh
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v6
