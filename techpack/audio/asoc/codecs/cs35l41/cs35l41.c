@@ -929,6 +929,20 @@ static irqreturn_t cs35l41_irq(int irq, void *data)
 		dev_crit(cs35l41->dev, "DC current detected");
 	}
 
+	/*
+	 * Clear ALL pending status bits to prevent interrupt storm.
+	 * Level-triggered GPIO IRQ re-fires immediately if any unmasked
+	 * status bit remains set after the handler returns.
+	 */
+	for (i = 0; i < ARRAY_SIZE(status); i++) {
+		if (status[i]) {
+			regmap_write(cs35l41->regmap,
+				     CS35L41_IRQ1_STATUS1 +
+				     (i * CS35L41_REGSTRIDE),
+				     status[i]);
+		}
+	}
+
 	return IRQ_HANDLED;
 }
 
