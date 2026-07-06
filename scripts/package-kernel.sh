@@ -50,6 +50,7 @@ fi
 # Include ZRAM/uclamp scripts
 [ -f "zram-resize.sh" ] && cp zram-resize.sh anykernel/anykernel-modules/
 [ -f "uclamp_tuning.sh" ] && cp uclamp_tuning.sh anykernel/anykernel-modules/
+[ -f "vm_tuning.sh" ] && cp vm_tuning.sh anykernel/anykernel-modules/ 2>/dev/null || true
 
 # Include Rogers VoLTE fix KernelSU module
 if [ -d ".volte_backup" ]; then

@@ -22,6 +22,8 @@
 #include <linux/ioctl.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/slab.h>
+#include <linux/cpumask.h>
+#include <linux/irq.h>
 
 #define SE_I2C_TX_TRANS_LEN		(0x26C)
 #define SE_I2C_RX_TRANS_LEN		(0x270)
@@ -1132,6 +1134,8 @@ static int geni_i2c_probe(struct platform_device *pdev)
 				   gi2c->irq, ret);
 		return ret;
 	}
+	/* Spread I2C IRQ off CPU0 for better load distribution */
+	irq_set_affinity_hint(gi2c->irq, cpumask_of(2));
 
 	disable_irq(gi2c->irq);
 	i2c_set_adapdata(&gi2c->adap, gi2c);

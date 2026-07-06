@@ -18,8 +18,18 @@
 #   vfs_cache_pressure: 100 → 75
 #     Less aggressive inode/dentry cache reclaim.
 #     Less scanning, slightly more cache memory.
+#
+#   swappiness: default (60) → 40
+#     Less aggressive page reclaim from anonymous memory.
+#     Keeps more app pages in RAM longer.
+#
+#   min_free_kbytes: default → 48000 (~47MB)
+#     Reserves more memory for emergency allocations.
+#     Reduces direct reclaim stalls under memory pressure.
 #==============================================================================
 
 echo 50 > /proc/sys/vm/watermark_scale_factor
 echo 750 > /proc/sys/vm/extfrag_threshold
 echo 75  > /proc/sys/vm/vfs_cache_pressure
+echo 40 > /proc/sys/vm/swappiness
+echo 48000 > /proc/sys/vm/min_free_kbytes
