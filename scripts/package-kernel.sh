@@ -67,6 +67,7 @@ with zipfile.ZipFile('$ZIP_FILENAME', 'w', zipfile.ZIP_DEFLATED, compresslevel=9
         for f in files:
             if f == '.gitignore': continue
             fp = os.path.join(root, f)
-            zf.write(fp)
+            arcname = os.path.relpath(fp, 'anykernel')
+            zf.write(fp, arcname=arcname)
 "
 echo "=== Package complete: $ZIP_FILENAME ==="
