@@ -1031,6 +1031,17 @@ static int cs35l41_main_amp_event(struct snd_soc_dapm_widget *w,
 		regmap_update_bits(cs35l41->regmap, CS35L41_PWR_CTRL1,
 				CS35L41_GLOBAL_EN_MASK, 0);
 
+		/* Allow hardware to begin shutdown sequence */
+		usleep_range(200, 300);
+
+		/*
+		 * Unmask PDN_DONE so STATUS1 reflects the bit.
+		 * CS35L41_INT1_MASK_DEFAULT masks PDN_DONE (bit 23),
+		 * which prevents STATUS1 from ever showing it set.
+		 */
+		regmap_update_bits(cs35l41->regmap, CS35L41_IRQ1_MASK1,
+				CS35L41_PDN_DONE_MASK, 0);
+
 		pdn = false;
 		for (i = 0; i < 100; i++) {
 			regmap_read(cs35l41->regmap, CS35L41_IRQ1_STATUS1,
@@ -1042,8 +1053,25 @@ static int cs35l41_main_amp_event(struct snd_soc_dapm_widget *w,
 			usleep_range(1000, 1010);
 		}
 
-		if (!pdn)
-			dev_warn(cs35l41->dev, "PDN failed\n");
+		/* Re-mask PDN_DONE (restore default) */
+		regmap_update_bits(cs35l41->regmap, CS35L41_IRQ1_MASK1,
+				CS35L41_PDN_DONE_MASK,
+				CS35L41_PDN_DONE_MASK);
+
+		if (!pdn) {
+			dev_warn(cs35l41->dev, "PDN failed, resetting\n");
+			/* Force clean state via hardware reset pulse */
+			if (cs35l41->reset_gpio) {
+				gpiod_set_value_cansleep(
+					cs35l41->reset_gpio, 0);
+				usleep_range(1000, 1100);
+				gpiod_set_value_cansleep(
+					cs35l41->reset_gpio, 1);
+				/* Wait for OTP boot after reset */
+				usleep_range(2000, 2100);
+			}
+			cs35l41->halo_booted = false;
+		}
 
 		regmap_write(cs35l41->regmap, CS35L41_IRQ1_STATUS1,
 			     CS35L41_PDN_DONE_MASK);
