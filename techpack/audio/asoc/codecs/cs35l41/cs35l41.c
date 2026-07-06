@@ -929,19 +929,6 @@ static irqreturn_t cs35l41_irq(int irq, void *data)
 		dev_crit(cs35l41->dev, "DC current detected");
 	}
 
-	/*
-	 * Clear ALL pending status bits to prevent interrupt storm.
-	 * Level-triggered GPIO IRQ re-fires immediately if any unmasked
-	 * status bit remains set after the handler returns.
-	 */
-	for (i = 0; i < ARRAY_SIZE(status); i++) {
-		if (status[i]) {
-			regmap_write(cs35l41->regmap,
-				     CS35L41_IRQ1_STATUS1 +
-				     (i * CS35L41_REGSTRIDE),
-				     status[i]);
-		}
-	}
 
 	return IRQ_HANDLED;
 }
@@ -1073,6 +1060,7 @@ static int cs35l41_main_amp_event(struct snd_soc_dapm_widget *w,
 				CS35L41_PDN_DONE_MASK);
 
 		if (!pdn) {
+			cs35l41->dsp.running = false;
 			dev_warn(cs35l41->dev, "PDN failed, resetting\n");
 			/* Force clean state via hardware reset pulse */
 			if (cs35l41->reset_gpio) {
