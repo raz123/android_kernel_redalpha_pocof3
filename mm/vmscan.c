@@ -52,6 +52,8 @@
 #include <linux/psi.h>
 #include <linux/ctype.h>
 #include <linux/shmem_fs.h>
+#include <linux/nodemask.h>
+#include <linux/debugfs.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
