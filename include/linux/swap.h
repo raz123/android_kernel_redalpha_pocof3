@@ -134,6 +134,11 @@ struct reclaim_state {
 #endif
 };
 
+#ifdef CONFIG_LRU_GEN
+bool lru_gen_enabled(void);
+bool lru_gen_in_fault(void);
+#endif
+
 #ifdef __KERNEL__
 
 struct address_space;
