@@ -4596,6 +4596,10 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 #define PAGEVEC_SIZE 15
 #endif
 
+#ifndef next_memory_node
+#define next_memory_node(nid) next_node(nid, node_states[N_MEMORY])
+#endif
+
 #ifdef CONFIG_LRU_GEN_ENABLED
 DEFINE_STATIC_KEY_ARRAY_TRUE(lru_gen_caps, NR_LRU_GEN_CAPS);
 #else
