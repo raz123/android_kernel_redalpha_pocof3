@@ -50,12 +50,19 @@ fi
 # Include ZRAM/uclamp scripts
 [ -f "zram-resize.sh" ] && cp zram-resize.sh anykernel/anykernel-modules/
 [ -f "uclamp_tuning.sh" ] && cp uclamp_tuning.sh anykernel/anykernel-modules/
-[ -f "vm_tuning.sh" ] && cp vm_tuning.sh anykernel/anykernel-modules/ 2>/dev/null || true
+
 
 # Include Rogers VoLTE fix KernelSU module
 if [ -d ".volte_backup" ]; then
   cp -r .volte_backup anykernel/anykernel-modules/fix_rogers_volte_module
   chmod 755 anykernel/anykernel-modules/fix_rogers_volte_module/*.sh 2>/dev/null || true
+fi
+
+# Include VM Tuning KernelSU module
+if [ -d "anykernel-modules/fix_vm_tuning" ]; then
+  cp -r anykernel-modules/fix_vm_tuning anykernel/anykernel-modules/fix_vm_tuning
+  chmod 755 anykernel/anykernel-modules/fix_vm_tuning/*.sh 2>/dev/null || true
+  echo "  -> VM Tuning module included in zip"
 fi
 
 # Build ZIP (use python zipfile — zip may not be installed)
