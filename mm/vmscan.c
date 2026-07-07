@@ -7195,11 +7195,11 @@ late_initcall(init_lru_gen);
 
 #else
 
-static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
+static void __maybe_unused lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
 {
 }
 
-static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
+static void __maybe_unused lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 {
 }
 
