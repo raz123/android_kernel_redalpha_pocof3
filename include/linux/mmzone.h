@@ -261,12 +261,12 @@ struct page_vma_mapped_walk;
 #define LRU_REFS_MASK		((BIT(LRU_REFS_WIDTH) - 1) << LRU_REFS_PGOFF)
 #define LRU_REFS_FLAGS		(BIT(PG_referenced) | BIT(PG_workingset))
 
-#ifdef CONFIG_LRU_GEN
-
 #define MIN_NR_GENS		2U
 #define MAX_NR_GENS		4U
 #define MAX_NR_TIERS		4U
 #define ANON_AND_FILE		2
+
+#ifdef CONFIG_LRU_GEN
 
 enum {
 	LRU_GEN_ANON,
