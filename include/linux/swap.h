@@ -137,6 +137,9 @@ struct reclaim_state {
 #ifdef CONFIG_LRU_GEN
 bool lru_gen_enabled(void);
 bool lru_gen_in_fault(void);
+#else
+static inline bool lru_gen_enabled(void) { return false; }
+static inline bool lru_gen_in_fault(void) { return false; }
 #endif
 
 #ifdef __KERNEL__
