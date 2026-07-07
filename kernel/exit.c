@@ -547,6 +547,9 @@ assign_new_owner:
 		goto retry;
 	}
 	mm->owner = c;
+#ifdef CONFIG_LRU_GEN
+	lru_gen_migrate_mm(mm);
+#endif
 	task_unlock(c);
 	put_task_struct(c);
 }

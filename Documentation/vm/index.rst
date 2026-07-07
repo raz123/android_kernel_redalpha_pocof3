@@ -13,6 +13,7 @@ various features of the Linux memory management
 .. toctree::
    :maxdepth: 1
 
+   multigen_lru
    swap_numa
    zswap
 
