@@ -5,6 +5,11 @@
 #include <linux/huge_mm.h>
 #include <linux/swap.h>
 
+#ifdef CONFIG_LRU_GEN
+static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bool reclaiming);
+static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bool reclaiming);
+#endif
+
 /**
  * page_is_file_cache - should the page be on a file LRU or anon LRU?
  * @page: the page to test
@@ -47,8 +52,10 @@ static __always_inline void update_lru_size(struct lruvec *lruvec,
 static __always_inline void add_page_to_lru_list(struct page *page,
 				struct lruvec *lruvec, enum lru_list lru)
 {
+#ifdef CONFIG_LRU_GEN
 	if (lru_gen_add_page(lruvec, page, false))
 		return;
+#endif
 
 	update_lru_size(lruvec, lru, page_zonenum(page), hpage_nr_pages(page));
 	list_add(&page->lru, &lruvec->lists[lru]);
@@ -64,8 +71,10 @@ static __always_inline void add_page_to_lru_list_tail(struct page *page,
 static __always_inline void del_page_from_lru_list(struct page *page,
 				struct lruvec *lruvec, enum lru_list lru)
 {
+#ifdef CONFIG_LRU_GEN
 	if (lru_gen_del_page(lruvec, page, false))
 		return;
+#endif
 
 	list_del(&page->lru);
 	update_lru_size(lruvec, lru, page_zonenum(page), -hpage_nr_pages(page));
