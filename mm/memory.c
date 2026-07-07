@@ -4161,11 +4161,11 @@ static void lru_gen_exit_fault(void)
 }
 
 #else
-static void lru_gen_enter_fault(struct vm_area_struct *vma)
+static void __maybe_unused lru_gen_enter_fault(struct vm_area_struct *vma)
 {
 }
 
-static void lru_gen_exit_fault(void)
+static void __maybe_unused lru_gen_exit_fault(void)
 {
 }
 #endif
