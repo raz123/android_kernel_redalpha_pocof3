@@ -2,52 +2,67 @@
 
 **Date:** 2026-07-07 | **Kernel:** 4.19.325 | **Device:** Poco F3 (SM8250)
 **Repos scanned:** 22 | **Total patches identified:** 100+
+**Evaluation complete:** 2026-07-07
 
 ---
 
-## Import Files
+## Import Files — Final Status
 
-| File | Source | Priority | Risk | Impact |
+| File | Source | Priority | Status | Reason |
 |---|---|---|---|---|
-| `cpumask-builtin-helpers.md` | Kosminor (Sultan Alsawaf) | P2 MEDIUM | LOW | Scheduler hot-path optimization |
-| `ufs-write-booster.md` | PocoF3Releases | P1 HIGH | LOW | 75% write speed improvement |
-| `lib-string-optimizations.md` | Danda420 + kvsnr113 | P2 MEDIUM | LOW | memcpy/memset +52-72% |
-| `int-sqrt-optimization.md` | Danda420 + kvsnr113 | P3 LOW | LOW | 3x faster integer sqrt |
-| `power-efficient-workqueue.md` | Kosminor | P2 MEDIUM | LOW | Battery life improvement |
-| `vmscan-critical-process.md` | EmanuelCN + kvsnr113 | P2 MEDIUM | LOW | Reduces UI jank |
-| `zram-lz4-dictionary.md` | GustavoMends | P2 MEDIUM | HIGH | Better compression (needs architecture port) |
-| `rcu-boot-only-expedited.md` | Kosminor | P2 MEDIUM | LOW | Power savings |
-| `drm-atomic-latency.md` | Kosminor | P2 MEDIUM | LOW | Display latency reduction |
-| `zram-bugfixes.md` | Danda420 + kvsnr113 | P1 HIGH | LOW | Crash fixes |
-| `sched-fair-fixes.md` | kvsnr113 + GustavoMends | P1 HIGH | MEDIUM | Kernel panic fixes |
-| `display-panel-reset.md` | PocoF3Releases | P2 MEDIUM | LOW | Display quality |
-| `cs35l41-xlog-removal.md` | LineageOS | P3 LOW | LOW | Telemetry removal |
-| `mglru.md` | Upstream (Yu Zhao, Google) | DEFERRED | HIGH | Multi-Gen LRU (needs architecture port) |
+| `cpumask-builtin-helpers.md` | Kosminor (Sultan Alsawaf) | P2 MEDIUM | ✅ Shipped b171 | Real win — NR_CPUS=8 ≤ BITS_PER_LONG=64 |
+| `ufs-write-booster.md` | PocoF3Releases | P1 HIGH | ⏭️ Already in tree | WB gate already has 0x300 + 0x220 at line 8607 |
+| `lib-string-optimizations.md` | Danda420 + kvsnr113 | P2 MEDIUM | ✅ Shipped b171 | Dead code on ARM64 (arch overrides active) |
+| `int-sqrt-optimization.md` | Danda420 + kvsnr113 | P3 LOW | ✅ Shipped b171 | 3x faster integer sqrt |
+| `power-efficient-workqueue.md` | Kosminor | P2 MEDIUM | ✅ Shipped b171 | WQ_POWER_EFFICIENT defaults OFF — inert unless opted in |
+| `vmscan-critical-process.md` | EmanuelCN + kvsnr113 | P2 MEDIUM | ✅ Shipped b171 | Protect display composer (oom_score_adj ≤ -900) |
+| `zram-lz4-dictionary.md` | GustavoMends | P2 MEDIUM | ⏭️ Deferred | Needs architecture port — our zram uses crypto API backends |
+| `rcu-boot-only-expedited.md` | Kosminor | P2 MEDIUM | ✅ Shipped b171 | Standard Android pattern |
+| `drm-atomic-latency.md` | Kosminor | P2 MEDIUM | ✅ Shipped b171 | PM QOS cap on ioctl duration |
+| `zram-bugfixes.md` | Danda420 + kvsnr113 | P1 HIGH | ⏭️ Already in tree | Our entry-based dedup architecture doesn't have these bugs |
+| `sched-fair-fixes.md` | kvsnr113 + GustavoMends | P1 HIGH | ⏭️ Incompatible | Target EEVDF scheduler — we have CFS+WALT |
+| `display-panel-reset.md` | PocoF3Releases | P2 MEDIUM | ⏭️ Not evaluated | Low priority — deferred |
+| `cs35l41-xlog-removal.md` | LineageOS | P3 LOW | ✅ Shipped b171 | Deleted send_data_to_xlog.c/h (-1215 lines) |
+| `mglru.md` | Upstream (Yu Zhao, Google) | DEFERRED | ⏭️ Not applicable | No 4.19 backport exists; UtsavBalar1231 tried and removed it |
 
 ---
 
-## PR Strategy
+## Evaluation Summary
+
+| Status | Count | Details |
+|---|---|---|
+| ✅ Shipped (b171) | 9 | lib/string, sqrt, cpumask, workqueue, vmscan, DRM, RCU, xlog removal |
+| ⏭️ Already in tree | 3 | UFS write booster, zram bugfixes (×4), cpumask |
+| ⏭️ Incompatible | 1 | sched-fair-fixes (EEVDF vs CFS+WALT) |
+| ⏭️ Deferred | 2 | zram LZ4 dictionary (arch port), MGLRU (no 4.19 backport) |
+| ⏭️ Not evaluated | 1 | display-panel-reset (low priority) |
+
+**All HIGH priority imports evaluated. No actionable items remaining.**
+
+---
+
+## PR Strategy (Historical)
 
 One PR per import. Each is independent, small, and can be tested/reverted individually.
 
 ### Tier 1 — Import First (HIGH priority, LOW risk)
-1. `import/ufs-write-booster` — 75% write speed improvement
-2. `import/zram-bugfixes` — crash fixes
-3. `import/sched-fair-fixes` — kernel panic fixes
+1. ~~`import/ufs-write-booster`~~ — Already in tree
+2. ~~`import/zram-bugfixes`~~ — Already in tree
+3. ~~`import/sched-fair-fixes`~~ — Incompatible (EEVDF vs CFS+WALT)
 
 ### Tier 2 — Import Next (MEDIUM priority, LOW risk)
-4. `import/lib-string-optimizations` — memcpy/memset +52-72%
-5. `import/power-efficient-workqueue` — battery life
-6. `import/vmscan-critical-process` — UI jank reduction
-7. `import/zram-lz4-dictionary` — compression improvement
-8. `import/rcu-boot-only-expedited` — power savings
-9. `import/cpumask-builtin-helpers` — scheduler optimization
-10. `import/display-panel-reset` — display quality
+4. ~~`import/lib-string-optimizations`~~ — Shipped b171
+5. ~~`import/power-efficient-workqueue`~~ — Shipped b171
+6. ~~`import/vmscan-critical-process`~~ — Shipped b171
+7. `import/zram-lz4-dictionary` — Deferred (needs architecture port)
+8. ~~`import/rcu-boot-only-expedited`~~ — Shipped b171
+9. ~~`import/cpumask-builtin-helpers`~~ — Shipped b171
+10. `import/display-panel-reset` — Not evaluated (low priority)
 
 ### Tier 3 — Import When Ready (LOW priority, LOW risk)
-11. `import/drm-atomic-latency` — display latency
-12. `import/cs35l41-xlog-removal` — telemetry removal
-13. `import/int-sqrt-optimization` — math optimization
+11. ~~`import/drm-atomic-latency`~~ — Shipped b171
+12. ~~`import/cs35l41-xlog-removal`~~ — Shipped b171
+13. ~~`import/int-sqrt-optimization`~~ — Shipped b171
 
 ---
 
@@ -90,3 +105,15 @@ One PR per import. Each is independent, small, and can be tested/reverted indivi
 | b162 | ReSukiSU vm_tuning module |
 | b165 | Smack heap overflow, binder dbitmap |
 | b168 | SLUB hardening, f2fs RT priority |
+| b171 | 9 performance imports (lib/string, cpumask, workqueue, vmscan, RCU, DRM, xlog removal) |
+
+---
+
+## Additional Research Completed
+
+| Topic | Result |
+|---|---|
+| MGLRU backport (UtsavBalar1231) | Was in release 4.0.0, removed by 5.0.0 — stability issues on SM8250 |
+| RTMM delta (UtsavBalar1231) | Identical to our tree — zero incremental value |
+| MI_RECLAIM | Separate subsystem already in our tree — complements RTMM |
+| EEVDF scheduler patches | Incompatible — our tree uses CFS+WALT, not EEVDF |
