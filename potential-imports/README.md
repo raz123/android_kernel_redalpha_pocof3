@@ -15,13 +15,14 @@
 | `int-sqrt-optimization.md` | Danda420 + kvsnr113 | P3 LOW | LOW | 3x faster integer sqrt |
 | `power-efficient-workqueue.md` | Kosminor | P2 MEDIUM | LOW | Battery life improvement |
 | `vmscan-critical-process.md` | EmanuelCN + kvsnr113 | P2 MEDIUM | LOW | Reduces UI jank |
-| `zram-lz4-dictionary.md` | GustavoMends | P2 MEDIUM | LOW | Better compression |
+| `zram-lz4-dictionary.md` | GustavoMends | P2 MEDIUM | HIGH | Better compression (needs architecture port) |
 | `rcu-boot-only-expedited.md` | Kosminor | P2 MEDIUM | LOW | Power savings |
 | `drm-atomic-latency.md` | Kosminor | P2 MEDIUM | LOW | Display latency reduction |
 | `zram-bugfixes.md` | Danda420 + kvsnr113 | P1 HIGH | LOW | Crash fixes |
 | `sched-fair-fixes.md` | kvsnr113 + GustavoMends | P1 HIGH | MEDIUM | Kernel panic fixes |
 | `display-panel-reset.md` | PocoF3Releases | P2 MEDIUM | LOW | Display quality |
 | `cs35l41-xlog-removal.md` | LineageOS | P3 LOW | LOW | Telemetry removal |
+| `mglru.md` | Upstream (Yu Zhao, Google) | DEFERRED | HIGH | Multi-Gen LRU (needs architecture port) |
 
 ---
 
