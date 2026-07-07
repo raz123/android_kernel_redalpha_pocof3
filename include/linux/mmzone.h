@@ -263,6 +263,10 @@ struct page_vma_mapped_walk;
 
 #ifdef CONFIG_LRU_GEN
 
+#define MIN_NR_GENS		2U
+#define MAX_NR_GENS		4U
+#define MAX_NR_TIERS		4U
+
 enum {
 	LRU_GEN_ANON,
 	LRU_GEN_FILE,
