@@ -568,6 +568,11 @@ struct mem_cgroup *lock_page_memcg(struct page *page);
 void __unlock_page_memcg(struct mem_cgroup *memcg);
 void unlock_page_memcg(struct page *page);
 
+#ifdef CONFIG_LRU_GEN
+bool mem_cgroup_trylock_pages(struct mem_cgroup *memcg);
+void mem_cgroup_unlock_pages(void);
+#endif
+
 /*
  * idx can be of type enum memcg_stat_item or node_stat_item.
  * Keep in sync with memcg_exact_page_state().

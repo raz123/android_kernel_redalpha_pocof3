@@ -6634,3 +6634,15 @@ static int __init cgroup_sysfs_init(void)
 subsys_initcall(cgroup_sysfs_init);
 
 #endif /* CONFIG_SYSFS */
+
+#ifdef CONFIG_LRU_GEN
+void cgroup_lock(void)
+{
+	mutex_lock(&cgroup_mutex);
+}
+
+void cgroup_unlock(void)
+{
+	mutex_unlock(&cgroup_mutex);
+}
+#endif /* CONFIG_LRU_GEN */

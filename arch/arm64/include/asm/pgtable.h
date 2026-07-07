@@ -848,6 +848,13 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 #define phys_to_ttbr(addr)	(addr)
 #endif
 
+#ifdef CONFIG_LRU_GEN
+static inline bool arch_has_hw_pte_young(void)
+{
+	return false;
+}
+#endif
+
 #endif /* !__ASSEMBLY__ */
 
 #endif /* __ASM_PGTABLE_H */

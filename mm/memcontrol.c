@@ -6844,3 +6844,23 @@ static int __init mem_cgroup_swap_init(void)
 subsys_initcall(mem_cgroup_swap_init);
 
 #endif /* CONFIG_MEMCG_SWAP */
+
+#ifdef CONFIG_LRU_GEN
+/*
+ * MGLRU shims for 4.19 compatibility.
+ *
+ * On 6.1+, mem_cgroup_trylock_pages() and mem_cgroup_unlock_pages()
+ * lock/unlock the memcg's lru_lock during MGLRU page table walking.
+ * On 4.19, MGLRU's page table walk handles synchronization via
+ * pgdat->lru_lock and the walk's own batching, so explicit memcg
+ * lru_lock acquisition is unnecessary.
+ */
+bool mem_cgroup_trylock_pages(struct mem_cgroup *memcg)
+{
+	return true;
+}
+
+void mem_cgroup_unlock_pages(void)
+{
+}
+#endif /* CONFIG_LRU_GEN */

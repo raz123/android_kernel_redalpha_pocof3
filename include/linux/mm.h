@@ -1471,6 +1471,10 @@ struct mm_walk {
 			     struct mm_walk *walk);
 	int (*test_walk)(unsigned long addr, unsigned long next,
 			struct mm_walk *walk);
+#ifdef CONFIG_LRU_GEN
+	int (*p4d_entry)(p4d_t *p4d, unsigned long addr,
+			 unsigned long next, struct mm_walk *walk);
+#endif
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;
 	void *private;

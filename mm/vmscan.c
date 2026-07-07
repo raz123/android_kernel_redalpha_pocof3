@@ -50,6 +50,8 @@
 #include <linux/printk.h>
 #include <linux/dax.h>
 #include <linux/psi.h>
+#include <linux/ctype.h>
+#include <linux/shmem_fs.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -4588,6 +4590,10 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 
 #ifdef CONFIG_LRU_GEN
 
+#ifndef PAGEVEC_SIZE
+#define PAGEVEC_SIZE 15
+#endif
+
 #ifdef CONFIG_LRU_GEN_ENABLED
 DEFINE_STATIC_KEY_ARRAY_TRUE(lru_gen_caps, NR_LRU_GEN_CAPS);
 #else
@@ -6154,7 +6160,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_BUG_ON_PAGE(!success, page);
 		SetPageUnevictable(page);
-		add_page_to_lru_list(page, lruvec);
+		add_page_to_lru_list(page, lruvec, LRU_UNEVICTABLE);
 		__count_vm_events(UNEVICTABLE_PGCULLED, delta);
 		return true;
 	}
@@ -6163,7 +6169,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_BUG_ON_PAGE(!success, page);
 		SetPageSwapBacked(page);
-		add_page_to_lru_list_tail(page, lruvec);
+		add_page_to_lru_list_tail(page, lruvec, LRU_INACTIVE_ANON);
 		return true;
 	}
 
@@ -6597,7 +6603,7 @@ static bool fill_evictable(struct lruvec *lruvec)
 
 			prefetchw_prev_lru_page(page, head, flags);
 
-			del_page_from_lru_list(page, lruvec);
+			del_page_from_lru_list(page, lruvec, LRU_INACTIVE_ANON);
 			success = lru_gen_add_page(lruvec, page, false);
 			VM_BUG_ON(!success);
 
@@ -6631,7 +6637,7 @@ static bool drain_evictable(struct lruvec *lruvec)
 
 			success = lru_gen_del_page(lruvec, page, false);
 			VM_BUG_ON(!success);
-			add_page_to_lru_list(page, lruvec);
+			add_page_to_lru_list(page, lruvec, LRU_INACTIVE_ANON);
 
 			if (!--remaining)
 				return false;
