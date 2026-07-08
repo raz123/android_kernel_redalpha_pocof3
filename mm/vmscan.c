@@ -54,7 +54,6 @@
 #include <linux/shmem_fs.h>
 #include <linux/nodemask.h>
 #include <linux/debugfs.h>
-#include <linux/pagevec.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -2593,6 +2592,14 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 			      struct scan_control *sc, unsigned long *lru_pages)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
+
+#ifdef CONFIG_LRU_GEN
+	if (lru_gen_enabled()) {
+		lru_gen_shrink_lruvec(lruvec, sc);
+		return;
+	}
+#endif
+
 	unsigned long nr[NR_LRU_LISTS];
 	unsigned long targets[NR_LRU_LISTS];
 	unsigned long nr_to_scan;
@@ -3488,9 +3495,16 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 #endif
 
 static void age_active_anon(struct pglist_data *pgdat,
-				struct scan_control *sc)
+			    struct scan_control *sc)
 {
 	struct mem_cgroup *memcg;
+
+#ifdef CONFIG_LRU_GEN
+	if (lru_gen_enabled()) {
+		lru_gen_age_node(pgdat, sc);
+		return;
+	}
+#endif
 
 	if (!total_swap_pages)
 		return;
@@ -4592,14 +4606,6 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 #endif /* CONFIG_SHMEM */
 
 #ifdef CONFIG_LRU_GEN
-
-#ifndef PAGEVEC_SIZE
-#define PAGEVEC_SIZE 15
-#endif
-
-#ifndef next_memory_node
-#define next_memory_node(nid) next_node(nid, node_states[N_MEMORY])
-#endif
 
 #ifdef CONFIG_LRU_GEN_ENABLED
 DEFINE_STATIC_KEY_ARRAY_TRUE(lru_gen_caps, NR_LRU_GEN_CAPS);
@@ -6167,7 +6173,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_BUG_ON_PAGE(!success, page);
 		SetPageUnevictable(page);
-		add_page_to_lru_list(page, lruvec, page_lru(page));
+		add_page_to_lru_list(page, lruvec);
 		__count_vm_events(UNEVICTABLE_PGCULLED, delta);
 		return true;
 	}
@@ -6176,7 +6182,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_BUG_ON_PAGE(!success, page);
 		SetPageSwapBacked(page);
-		add_page_to_lru_list_tail(page, lruvec, page_lru(page));
+		add_page_to_lru_list_tail(page, lruvec);
 		return true;
 	}
 
@@ -6610,7 +6616,7 @@ static bool fill_evictable(struct lruvec *lruvec)
 
 			prefetchw_prev_lru_page(page, head, flags);
 
-			del_page_from_lru_list(page, lruvec, page_lru(page));
+			del_page_from_lru_list(page, lruvec);
 			success = lru_gen_add_page(lruvec, page, false);
 			VM_BUG_ON(!success);
 
@@ -6644,7 +6650,7 @@ static bool drain_evictable(struct lruvec *lruvec)
 
 			success = lru_gen_del_page(lruvec, page, false);
 			VM_BUG_ON(!success);
-			add_page_to_lru_list(page, lruvec, page_lru(page));
+			add_page_to_lru_list(page, lruvec);
 
 			if (!--remaining)
 				return false;
@@ -6793,7 +6799,7 @@ static struct attribute *lru_gen_attrs[] = {
 	NULL
 };
 
-static struct attribute_group __maybe_unused lru_gen_attr_group = {
+static struct attribute_group lru_gen_attr_group = {
 	.name = "lru_gen",
 	.attrs = lru_gen_attrs,
 };
@@ -7190,7 +7196,7 @@ void lru_gen_exit_memcg(struct mem_cgroup *memcg)
 }
 #endif
 
-/* static int __init init_lru_gen(void)
+static int __init init_lru_gen(void)
 {
 	BUILD_BUG_ON(MIN_NR_GENS + 1 >= MAX_NR_GENS);
 	BUILD_BUG_ON(BIT(LRU_GEN_WIDTH) <= MAX_NR_GENS);
@@ -7204,7 +7210,7 @@ void lru_gen_exit_memcg(struct mem_cgroup *memcg)
 
 	return 0;
 };
-late_initcall(init_lru_gen); */
+late_initcall(init_lru_gen);
 
 #else
 
