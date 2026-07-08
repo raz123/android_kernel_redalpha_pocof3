@@ -6,6 +6,7 @@
  */
 
 #include <linux/memcontrol.h>
+#include <linux/mm_inline.h>
 #include <linux/writeback.h>
 #include <linux/shmem_fs.h>
 #include <linux/pagemap.h>
@@ -15,7 +16,6 @@
 #include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
-#include <linux/mm_inline.h>
 
 /*
  *		Double CLOCK lists
@@ -185,7 +185,6 @@ static unsigned int bucket_order __read_mostly;
 static void *pack_shadow(int memcgid, pg_data_t *pgdat, unsigned long eviction,
 			 bool workingset)
 {
-	eviction >>= bucket_order;
 	eviction = (eviction << MEM_CGROUP_ID_SHIFT) | memcgid;
 	eviction = (eviction << NODES_SHIFT) | pgdat->node_id;
 	eviction = (eviction << 1) | workingset;
@@ -211,7 +210,7 @@ static void unpack_shadow(void *shadow, int *memcgidp, pg_data_t **pgdat,
 
 	*memcgidp = memcgid;
 	*pgdat = NODE_DATA(nid);
-	*evictionp = entry << bucket_order;
+	*evictionp = entry;
 	*workingsetp = workingset;
 }
 
@@ -369,6 +368,7 @@ void workingset_refault(struct page *page, void *shadow)
 	}
 
 	unpack_shadow(shadow, &memcgid, &pgdat, &eviction, &workingset);
+	eviction <<= bucket_order;
 
 	rcu_read_lock();
 	/*

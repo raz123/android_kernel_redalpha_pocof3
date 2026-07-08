@@ -5,11 +5,6 @@
 #include <linux/huge_mm.h>
 #include <linux/swap.h>
 
-#ifdef CONFIG_LRU_GEN
-static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bool reclaiming);
-static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bool reclaiming);
-#endif
-
 /**
  * page_is_file_cache - should the page be on a file LRU or anon LRU?
  * @page: the page to test
@@ -34,6 +29,8 @@ static __always_inline void __update_lru_size(struct lruvec *lruvec,
 {
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 
+	lockdep_assert_held(&pgdat->lru_lock);
+
 	__mod_node_page_state(pgdat, NR_LRU_BASE + lru, nr_pages);
 	__mod_zone_page_state(&pgdat->node_zones[zid],
 				NR_ZONE_LRU_BASE + lru, nr_pages);
@@ -49,74 +46,22 @@ static __always_inline void update_lru_size(struct lruvec *lruvec,
 #endif
 }
 
-static __always_inline void add_page_to_lru_list(struct page *page,
-				struct lruvec *lruvec, enum lru_list lru)
-{
-#ifdef CONFIG_LRU_GEN
-	if (lru_gen_add_page(lruvec, page, false))
-		return;
-#endif
-
-	update_lru_size(lruvec, lru, page_zonenum(page), hpage_nr_pages(page));
-	list_add(&page->lru, &lruvec->lists[lru]);
-}
-
-static __always_inline void add_page_to_lru_list_tail(struct page *page,
-				struct lruvec *lruvec, enum lru_list lru)
-{
-	update_lru_size(lruvec, lru, page_zonenum(page), hpage_nr_pages(page));
-	list_add_tail(&page->lru, &lruvec->lists[lru]);
-}
-
-static __always_inline void del_page_from_lru_list(struct page *page,
-				struct lruvec *lruvec, enum lru_list lru)
-{
-#ifdef CONFIG_LRU_GEN
-	if (lru_gen_del_page(lruvec, page, false))
-		return;
-#endif
-
-	list_del(&page->lru);
-	update_lru_size(lruvec, lru, page_zonenum(page), -hpage_nr_pages(page));
-}
-
 /**
- * page_lru_base_type - which LRU list type should a page be on?
- * @page: the page to test
- *
- * Used for LRU list index arithmetic.
- *
- * Returns the base LRU type - file or anon - @page should be on.
+ * __clear_page_lru_flags - clear page lru flags before releasing a page
+ * @page: the page that was on lru and now has a zero reference
  */
-static inline enum lru_list page_lru_base_type(struct page *page)
+static __always_inline void __clear_page_lru_flags(struct page *page)
 {
-	if (page_is_file_cache(page))
-		return LRU_INACTIVE_FILE;
-	return LRU_INACTIVE_ANON;
-}
+	VM_BUG_ON_PAGE(!PageLRU(page), page);
 
-/**
- * page_off_lru - which LRU list was page on? clearing its lru flags.
- * @page: the page to test
- *
- * Returns the LRU list a page was on, as an index into the array of LRU
- * lists; and clears its Unevictable or Active flags, ready for freeing.
- */
-static __always_inline enum lru_list page_off_lru(struct page *page)
-{
-	enum lru_list lru;
+	__ClearPageLRU(page);
 
-	if (PageUnevictable(page)) {
-		__ClearPageUnevictable(page);
-		lru = LRU_UNEVICTABLE;
-	} else {
-		lru = page_lru_base_type(page);
-		if (PageActive(page)) {
-			__ClearPageActive(page);
-			lru += LRU_ACTIVE;
-		}
-	}
-	return lru;
+	/* this shouldn't happen, so leave the flags to bad_page() */
+	if (PageActive(page) && PageUnevictable(page))
+		return;
+
+	__ClearPageActive(page);
+	__ClearPageUnevictable(page);
 }
 
 /**
@@ -130,13 +75,15 @@ static __always_inline enum lru_list page_lru(struct page *page)
 {
 	enum lru_list lru;
 
+	VM_BUG_ON_PAGE(PageActive(page) && PageUnevictable(page), page);
+
 	if (PageUnevictable(page))
-		lru = LRU_UNEVICTABLE;
-	else {
-		lru = page_lru_base_type(page);
-		if (PageActive(page))
-			lru += LRU_ACTIVE;
-	}
+		return LRU_UNEVICTABLE;
+
+	lru = page_is_file_cache(page) ? LRU_INACTIVE_FILE : LRU_INACTIVE_ANON;
+	if (PageActive(page))
+		lru += LRU_ACTIVE;
+
 	return lru;
 }
 
@@ -191,7 +138,7 @@ static inline bool lru_gen_is_active(struct lruvec *lruvec, int gen)
 }
 
 static inline void lru_gen_update_size(struct lruvec *lruvec, struct page *page,
-			       int old_gen, int new_gen)
+				       int old_gen, int new_gen)
 {
 	int type = page_is_file_cache(page);
 	int zone = page_zonenum(page);
@@ -337,4 +284,38 @@ static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bo
 
 #endif /* CONFIG_LRU_GEN */
 
+static __always_inline void add_page_to_lru_list(struct page *page,
+				struct lruvec *lruvec)
+{
+	enum lru_list lru = page_lru(page);
+
+	if (lru_gen_add_page(lruvec, page, false))
+		return;
+
+	update_lru_size(lruvec, lru, page_zonenum(page), hpage_nr_pages(page));
+	list_add(&page->lru, &lruvec->lists[lru]);
+}
+
+static __always_inline void add_page_to_lru_list_tail(struct page *page,
+				struct lruvec *lruvec)
+{
+	enum lru_list lru = page_lru(page);
+
+	if (lru_gen_add_page(lruvec, page, true))
+		return;
+
+	update_lru_size(lruvec, lru, page_zonenum(page), hpage_nr_pages(page));
+	list_add_tail(&page->lru, &lruvec->lists[lru]);
+}
+
+static __always_inline void del_page_from_lru_list(struct page *page,
+				struct lruvec *lruvec)
+{
+	if (lru_gen_del_page(lruvec, page, false))
+		return;
+
+	list_del(&page->lru);
+	update_lru_size(lruvec, page_lru(page), page_zonenum(page),
+			-hpage_nr_pages(page));
+}
 #endif
