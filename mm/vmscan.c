@@ -54,6 +54,21 @@
 #include <linux/shmem_fs.h>
 #include <linux/nodemask.h>
 #include <linux/debugfs.h>
+#include <linux/pagevec.h>
+
+#ifndef PAGEVEC_SIZE
+#define PAGEVEC_SIZE 15
+#endif
+
+#ifndef next_memory_node
+#define next_memory_node(nid) next_node(nid, node_states[N_MEMORY])
+#endif
+
+/* Forward declarations for MGLRU */
+#ifdef CONFIG_LRU_GEN
+static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc);
+static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc);
+#endif
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -2592,6 +2607,7 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 			      struct scan_control *sc, unsigned long *lru_pages)
 {
 	struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
+	unsigned long nr[NR_LRU_LISTS];
 
 #ifdef CONFIG_LRU_GEN
 	if (lru_gen_enabled()) {
@@ -2599,8 +2615,6 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 		return;
 	}
 #endif
-
-	unsigned long nr[NR_LRU_LISTS];
 	unsigned long targets[NR_LRU_LISTS];
 	unsigned long nr_to_scan;
 	enum lru_list lru;
@@ -6173,7 +6187,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_BUG_ON_PAGE(!success, page);
 		SetPageUnevictable(page);
-		add_page_to_lru_list(page, lruvec);
+		add_page_to_lru_list(page, lruvec, page_lru(page));
 		__count_vm_events(UNEVICTABLE_PGCULLED, delta);
 		return true;
 	}
@@ -6182,7 +6196,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, int tier_idx)
 		success = lru_gen_del_page(lruvec, page, true);
 		VM_BUG_ON_PAGE(!success, page);
 		SetPageSwapBacked(page);
-		add_page_to_lru_list_tail(page, lruvec);
+		add_page_to_lru_list_tail(page, lruvec, page_lru(page));
 		return true;
 	}
 
@@ -6616,7 +6630,7 @@ static bool fill_evictable(struct lruvec *lruvec)
 
 			prefetchw_prev_lru_page(page, head, flags);
 
-			del_page_from_lru_list(page, lruvec);
+			del_page_from_lru_list(page, lruvec, page_lru(page));
 			success = lru_gen_add_page(lruvec, page, false);
 			VM_BUG_ON(!success);
 
@@ -6650,7 +6664,7 @@ static bool drain_evictable(struct lruvec *lruvec)
 
 			success = lru_gen_del_page(lruvec, page, false);
 			VM_BUG_ON(!success);
-			add_page_to_lru_list(page, lruvec);
+			add_page_to_lru_list(page, lruvec, page_lru(page));
 
 			if (!--remaining)
 				return false;
