@@ -4608,14 +4608,6 @@ void __maybe_unused lru_gen_migrate_mm(struct mm_struct *mm)
 {
 }
 
-void __maybe_unused lru_gen_init_mm(struct mm_struct *mm)
-{
-}
-
-void __maybe_unused lru_gen_use_mm(struct mm_struct *mm)
-{
-}
-
 #else
 
 static void __maybe_unused lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
