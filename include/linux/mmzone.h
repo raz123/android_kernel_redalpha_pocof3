@@ -61,6 +61,13 @@ enum migratetype {
 #endif
 	MIGRATE_PCPTYPES, /* the number of types on the pcp lists */
 	MIGRATE_HIGHATOMIC = MIGRATE_PCPTYPES,
+#ifdef CONFIG_EMERGENCY_MEMORY
+	/*
+	 * MIGRATE_EMERGENCY migration type is designed to save
+	 * non-costly non-NOWARN page allocation failure.
+	 */
+	MIGRATE_EMERGENCY,
+#endif
 #ifdef CONFIG_MEMORY_ISOLATION
 	MIGRATE_ISOLATE,	/* can't allocate from here */
 #endif
@@ -233,71 +240,18 @@ static inline int is_active_lru(enum lru_list lru)
 	return (lru == LRU_ACTIVE_ANON || lru == LRU_ACTIVE_FILE);
 }
 
-#define ANON_AND_FILE 2
-
 struct zone_reclaim_stat {
 	/*
 	 * The pageout code in vmscan.c keeps track of how many of the
 	 * mem/swap backed and file backed pages are referenced.
 	 * The higher the rotated/scanned ratio, the more valuable
 	 * that cache is.
+	 *
+	 * The anon LRU stats live in [0], file LRU stats in [1]
 	 */
-	unsigned long		recent_rotated[ANON_AND_FILE];
-	unsigned long		recent_scanned[ANON_AND_FILE];
+	unsigned long		recent_rotated[2];
+	unsigned long		recent_scanned[2];
 };
-
-#endif /* !__GENERATING_BOUNDS_H */
-
-/*
- * Evictable pages are divided into multiple generations. The youngest and the
- * oldest generation numbers, max_seq and min_seq, are monotonically increasing.
- * They form a sliding window of a variable size [MIN_NR_GENS, MAX_NR_GENS]. An
- * offset within MAX_NR_GENS, gen, indexes the LRU list of the corresponding
- * generation. The gen counter in page->flags stores gen+1 while a page is on
- * one of lrugen->lists[]. Otherwise it stores 0.
- *
- * A page is added to the youngest generation on faulting. The aging needs to
- * check the accessed bit at least twice before handing this page over to the
- * eviction. The first check takes care of the accessed bit set on the initial
- * fault; the second check makes sure this page hasn't been used since then.
- * This process, AKA second chance, requires a minimum of two generations,
- * hence MIN_NR_GENS. And to maintain ABI compatibility with the active/inactive
- * LRU, these two generations are considered active; the rest of generations, if
- * they exist, are considered inactive. See lru_gen_is_active(). PG_active is
- * always cleared while a page is on one of lrugen->lists[] so that the aging
- * needs not to worry about it. And it's set again when a page considered active
- * is isolated for non-reclaiming purposes, e.g., migration. See
- * lru_gen_add_page() and lru_gen_del_page().
- *
- * MAX_NR_GENS is set to 4 so that the multi-gen LRU can support twice of the
- * categories of the active/inactive LRU when keeping track of accesses through
- * page tables. It requires order_base_2(MAX_NR_GENS+1) bits in page->flags.
- */
-#define MIN_NR_GENS		2U
-#define MAX_NR_GENS		4U
-
-/*
- * Each generation is divided into multiple tiers. Tiers represent different
- * ranges of numbers of accesses through file descriptors. A page accessed N
- * times through file descriptors is in tier order_base_2(N). A page in the
- * first tier (N=0,1) is marked by PG_referenced unless it was faulted in
- * though page tables or read ahead. A page in any other tier (N>1) is marked
- * by PG_referenced and PG_workingset.
- *
- * In contrast to moving across generations which requires the LRU lock, moving
- * across tiers only requires operations on page->flags and therefore has a
- * negligible cost in the buffered access path. In the eviction path,
- * comparisons of refaulted/(evicted+protected) from the first tier and the
- * rest infer whether pages accessed multiple times through file descriptors
- * are statistically hot and thus worth protecting.
- *
- * MAX_NR_TIERS is set to 4 so that the multi-gen LRU can support twice of the
- * categories of the active/inactive LRU when keeping track of accesses through
- * file descriptors. It requires MAX_NR_TIERS-2 additional bits in page->flags.
- */
-#define MAX_NR_TIERS		4U
-
-#ifndef __GENERATING_BOUNDS_H
 
 struct lruvec;
 struct mem_cgroup;
@@ -306,6 +260,11 @@ struct page_vma_mapped_walk;
 #define LRU_GEN_MASK		((BIT(LRU_GEN_WIDTH) - 1) << LRU_GEN_PGOFF)
 #define LRU_REFS_MASK		((BIT(LRU_REFS_WIDTH) - 1) << LRU_REFS_PGOFF)
 #define LRU_REFS_FLAGS		(BIT(PG_referenced) | BIT(PG_workingset))
+
+#define MIN_NR_GENS		2U
+#define MAX_NR_GENS		4U
+#define MAX_NR_TIERS		4U
+#define ANON_AND_FILE		2
 
 #ifdef CONFIG_LRU_GEN
 
@@ -588,7 +547,10 @@ enum zone_type {
 
 #ifndef __GENERATING_BOUNDS_H
 
-#define ASYNC_AND_SYNC 2
+#ifdef CONFIG_EMERGENCY_MEMORY
+/* The maximum number of pages in MIGRATE_EMERGENCY migration type */
+#define MAX_MANAGED_EMERGENCY 2048
+#endif
 
 struct zone {
 	/* Read-mostly fields */
@@ -598,6 +560,10 @@ struct zone {
 	unsigned long watermark_boost;
 
 	unsigned long nr_reserved_highatomic;
+#ifdef CONFIG_EMERGENCY_MEMORY
+	/* The actual number of pages in MIGRATE_EMERGENCY migration type */
+	unsigned long nr_reserved_emergency;
+#endif
 
 	/*
 	 * We don't know if the memory that we're going to allocate will be
@@ -719,8 +685,8 @@ struct zone {
 #if defined CONFIG_COMPACTION || defined CONFIG_CMA
 	/* pfn where compaction free scanner should start */
 	unsigned long		compact_cached_free_pfn;
-	/* pfn where compaction migration scanner should start */
-	unsigned long		compact_cached_migrate_pfn[ASYNC_AND_SYNC];
+	/* pfn where async and sync compaction migration scanner should start */
+	unsigned long		compact_cached_migrate_pfn[2];
 	unsigned long		compact_init_migrate_pfn;
 	unsigned long		compact_init_free_pfn;
 #endif
@@ -1149,25 +1115,25 @@ static inline int is_highmem(struct zone *zone)
 /* These two functions are used to setup the per zone pages min values */
 struct ctl_table;
 int kswapd_threads_sysctl_handler(struct ctl_table *, int,
-					void __user *, size_t *, loff_t *);
+					void *, size_t *, loff_t *);
 int min_free_kbytes_sysctl_handler(struct ctl_table *, int,
-					void __user *, size_t *, loff_t *);
+					void *, size_t *, loff_t *);
 int watermark_boost_factor_sysctl_handler(struct ctl_table *, int,
-					void __user *, size_t *, loff_t *);
+					void *, size_t *, loff_t *);
 int watermark_scale_factor_sysctl_handler(struct ctl_table *, int,
-					void __user *, size_t *, loff_t *);
+					void *, size_t *, loff_t *);
 extern int sysctl_lowmem_reserve_ratio[MAX_NR_ZONES];
-int lowmem_reserve_ratio_sysctl_handler(struct ctl_table *, int,
-					void __user *, size_t *, loff_t *);
+int lowmem_reserve_ratio_sysctl_handler(struct ctl_table *, int, void *,
+		size_t *, loff_t *);
 int percpu_pagelist_fraction_sysctl_handler(struct ctl_table *, int,
-					void __user *, size_t *, loff_t *);
+		void *, size_t *, loff_t *);
 int sysctl_min_unmapped_ratio_sysctl_handler(struct ctl_table *, int,
-			void __user *, size_t *, loff_t *);
+		void *, size_t *, loff_t *);
 int sysctl_min_slab_ratio_sysctl_handler(struct ctl_table *, int,
-			void __user *, size_t *, loff_t *);
+			void *, size_t *, loff_t *);
 
-extern int numa_zonelist_order_handler(struct ctl_table *, int,
-			void __user *, size_t *, loff_t *);
+int numa_zonelist_order_handler(struct ctl_table *, int,
+			void *, size_t *, loff_t *);
 extern char numa_zonelist_order[];
 #define NUMA_ZONELIST_ORDER_LEN	16
 

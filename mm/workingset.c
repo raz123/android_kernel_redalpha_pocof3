@@ -6,7 +6,6 @@
  */
 
 #include <linux/memcontrol.h>
-#include <linux/mm_inline.h>
 #include <linux/writeback.h>
 #include <linux/shmem_fs.h>
 #include <linux/pagemap.h>
@@ -16,6 +15,7 @@
 #include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
+#include <linux/mm_inline.h>
 
 /*
  *		Double CLOCK lists
@@ -368,7 +368,6 @@ void workingset_refault(struct page *page, void *shadow)
 	}
 
 	unpack_shadow(shadow, &memcgid, &pgdat, &eviction, &workingset);
-	eviction <<= bucket_order;
 
 	rcu_read_lock();
 	/*
