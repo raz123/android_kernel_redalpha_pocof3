@@ -40,7 +40,7 @@ jobs:
             -v ${{ github.workspace }}/build:/workspace \
             -v /tmp/ccache-cache:/root/.ccache \
             -w /workspace \
-            -e KSU=${{ inputs.ksu && '1' || '0' }} \
+            -e KSU=${{ inputs.ksu == false && '0' || '1' }} \
             -e KBUILD_BUILD_TIMESTAMP='' \
             -e KBUILD_BUILD_VERSION=${{ github.run_number }} \
             kernel-builder \
