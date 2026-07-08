@@ -2609,13 +2609,6 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 	struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
 	unsigned long nr[NR_LRU_LISTS];
 	unsigned long targets[NR_LRU_LISTS];
-
-#ifdef CONFIG_LRU_GEN
-	if (lru_gen_enabled()) {
-		lru_gen_shrink_lruvec(lruvec, sc);
-		return;
-	}
-#endif
 	unsigned long nr_to_scan;
 	enum lru_list lru;
 	unsigned long nr_reclaimed = 0;
@@ -2623,6 +2616,12 @@ static void shrink_node_memcg(struct pglist_data *pgdat, struct mem_cgroup *memc
 	struct blk_plug plug;
 	bool scan_adjusted;
 
+#ifdef CONFIG_LRU_GEN
+	if (lru_gen_enabled()) {
+		lru_gen_shrink_lruvec(lruvec, sc);
+		return;
+	}
+#endif
 	get_scan_count(lruvec, memcg, sc, nr, lru_pages);
 
 	/* Record the original scan target for proportional adjustments later */
