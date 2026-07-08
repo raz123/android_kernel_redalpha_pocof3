@@ -64,12 +64,6 @@
 #define next_memory_node(nid) next_node(nid, node_states[N_MEMORY])
 #endif
 
-/* Forward declarations for MGLRU */
-#ifdef CONFIG_LRU_GEN
-static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc);
-static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc);
-#endif
-
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
 
@@ -172,6 +166,12 @@ struct scan_control {
 	 */
 	struct vm_area_struct *target_vma;
 };
+
+/* Forward declarations for MGLRU */
+#ifdef CONFIG_LRU_GEN
+static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc);
+static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc);
+#endif
 
 /*
  * Number of active kswapd threads
