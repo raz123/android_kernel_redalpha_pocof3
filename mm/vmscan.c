@@ -4594,8 +4594,6 @@ void check_move_unevictable_pages(struct page **pages, int nr_pages)
 #ifdef CONFIG_LRU_GEN
 /* MGLRU block stripped for bootloop debugging */
 
-#else
-
 DEFINE_STATIC_KEY_ARRAY_FALSE(lru_gen_caps, NR_LRU_GEN_CAPS);
 
 void __maybe_unused lru_gen_add_mm(struct mm_struct *mm)
@@ -4617,6 +4615,8 @@ void __maybe_unused lru_gen_init_mm(struct mm_struct *mm)
 void __maybe_unused lru_gen_use_mm(struct mm_struct *mm)
 {
 }
+
+#else
 
 static void __maybe_unused lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
 {
