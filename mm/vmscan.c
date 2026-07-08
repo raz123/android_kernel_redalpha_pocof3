@@ -6793,7 +6793,7 @@ static struct attribute *lru_gen_attrs[] = {
 	NULL
 };
 
-static struct __maybe_unused attribute_group lru_gen_attr_group = {
+static struct attribute_group __maybe_unused lru_gen_attr_group = {
 	.name = "lru_gen",
 	.attrs = lru_gen_attrs,
 };
