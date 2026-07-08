@@ -849,10 +849,7 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 #endif
 
 #ifdef CONFIG_LRU_GEN
-static inline bool arch_has_hw_pte_young(void)
-{
-	return false;
-}
+#define arch_has_hw_pte_young	cpu_has_hw_af
 #endif
 
 #endif /* !__ASSEMBLY__ */
