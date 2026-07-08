@@ -6610,7 +6610,7 @@ static bool fill_evictable(struct lruvec *lruvec)
 
 			prefetchw_prev_lru_page(page, head, flags);
 
-			del_page_from_lru_list(page, lruvec);
+			del_page_from_lru_list(page, lruvec, page_lru(page));
 			success = lru_gen_add_page(lruvec, page, false);
 			VM_BUG_ON(!success);
 
