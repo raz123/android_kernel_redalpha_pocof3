@@ -822,8 +822,6 @@ extern int kern_addr_valid(unsigned long addr);
 
 #define arch_has_hw_pte_young	cpu_has_hw_af
 
-#include <asm-generic/pgtable.h>
-
 void pgd_cache_init(void);
 #define pgtable_cache_init	pgd_cache_init
 
