@@ -199,6 +199,7 @@ enum print_reason {
 #define MAIN_ICL_MIN_VOTER		"MAIN_ICL_MIN_VOTER"
 #define SIX_PIN_VFLOAT_VOTER		"SIX_PIN_VFLOAT_VOTER"
 #define NON_FFC_VFLOAT_VOTER		"NON_FFC_VFLOAT_VOTER"
+#define CHARGE_LIMIT_VOTER		"CHARGE_LIMIT_VOTER"
 #define SW_CONN_THERM_VOTER		"SW_CONN_THERM_VOTER"
 
 #define QC3P5_CHARGER_ICL	2000000
@@ -697,6 +698,7 @@ struct smb_charger {
 	struct delayed_work	six_pin_batt_step_chg_work;
 	struct delayed_work	pr_swap_detach_work;
 	struct delayed_work	reg_work;
+	struct delayed_work	charge_limit_work;
 	struct delayed_work	thermal_setting_work;
 #ifndef CONFIG_FUEL_GAUGE_BQ27Z561_MUNCH
 	struct delayed_work	reduce_fcc_work;
@@ -847,6 +849,8 @@ struct smb_charger {
 	u32			comp_clamp_level;
 	int			wls_icl_ua;
 	int			capacity;
+	int			charge_limit;
+	bool			charge_limit_active;
 	int			cutoff_count;
 	bool			dcin_aicl_done;
 	bool			hvdcp3_standalone_config;
@@ -1081,6 +1085,8 @@ int smblib_get_prop_system_temp_level(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_system_temp_level_max(struct smb_charger *chg,
 				union power_supply_propval *val);
+int smblib_get_prop_charge_limit(struct smb_charger *chg,
+				union power_supply_propval *val);
 int smblib_get_prop_input_current_limited(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_batt_iterm(struct smb_charger *chg,
@@ -1094,6 +1100,8 @@ int smblib_set_prop_batt_capacity(struct smb_charger *chg,
 int smblib_set_prop_batt_status(struct smb_charger *chg,
 				const union power_supply_propval *val);
 int smblib_set_prop_system_temp_level(struct smb_charger *chg,
+				const union power_supply_propval *val);
+int smblib_set_prop_charge_limit(struct smb_charger *chg,
 				const union power_supply_propval *val);
 int smblib_set_prop_input_current_limited(struct smb_charger *chg,
 				const union power_supply_propval *val);

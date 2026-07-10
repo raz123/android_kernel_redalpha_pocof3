@@ -3070,13 +3070,13 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 		rc = smblib_get_prop_batt_capacity(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
-		rc = smblib_get_prop_system_temp_level(chg, val);
+		rc = smblib_get_prop_charge_limit(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_DC_THERMAL_LEVELS:
 		rc = smblib_get_prop_dc_temp_level(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX:
-		rc = smblib_get_prop_system_temp_level_max(chg, val);
+		val->intval = 100;
 		break;
 	case POWER_SUPPLY_PROP_CHARGER_TEMP:
 		rc = smblib_get_prop_charger_temp(chg, val);
@@ -3247,7 +3247,7 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 		rc = smblib_set_prop_battery_input_suspend(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
-		rc = smblib_set_prop_system_temp_level(chg, val);
+		rc = smblib_set_prop_charge_limit(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_DC_THERMAL_LEVELS:
 		if (chg->support_wireless)
@@ -3367,6 +3367,7 @@ static int smb5_batt_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 	case POWER_SUPPLY_PROP_BATTERY_INPUT_SUSPEND:
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 	case POWER_SUPPLY_PROP_CAPACITY:
 	case POWER_SUPPLY_PROP_PARALLEL_DISABLE:
 	case POWER_SUPPLY_PROP_DP_DM:
