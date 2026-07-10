@@ -3070,13 +3070,13 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 		rc = smblib_get_prop_batt_capacity(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
-		rc = smblib_get_prop_charge_limit(chg, val);
+		rc = smblib_get_prop_system_temp_level(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_DC_THERMAL_LEVELS:
 		rc = smblib_get_prop_dc_temp_level(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX:
-		val->intval = 100;
+		rc = smblib_get_prop_system_temp_level_max(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGER_TEMP:
 		rc = smblib_get_prop_charger_temp(chg, val);
@@ -3247,7 +3247,7 @@ static int smb5_batt_set_prop(struct power_supply *psy,
 		rc = smblib_set_prop_battery_input_suspend(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
-		rc = smblib_set_prop_charge_limit(chg, val);
+		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_DC_THERMAL_LEVELS:
 		if (chg->support_wireless)
@@ -3367,7 +3367,6 @@ static int smb5_batt_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 	case POWER_SUPPLY_PROP_BATTERY_INPUT_SUSPEND:
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
-	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 	case POWER_SUPPLY_PROP_CAPACITY:
 	case POWER_SUPPLY_PROP_PARALLEL_DISABLE:
 	case POWER_SUPPLY_PROP_DP_DM:
@@ -3401,6 +3400,42 @@ static const struct power_supply_desc batt_psy_desc = {
 	.property_is_writeable = smb5_batt_prop_is_writeable,
 };
 
+static ssize_t redalpha_charge_limit_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct smb5 *chip = dev_get_drvdata(dev);
+	union power_supply_propval val;
+
+	if (smblib_get_prop_charge_limit(&chip->chg, &val) < 0)
+		return -EIO;
+	return scnprintf(buf, PAGE_SIZE, "%d\n", val.intval);
+}
+
+static ssize_t redalpha_charge_limit_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct smb5 *chip = dev_get_drvdata(dev);
+	union power_supply_propval val;
+	int rc;
+
+	rc = kstrtoint(buf, 10, &val.intval);
+	if (rc < 0)
+		return rc;
+	rc = smblib_set_prop_charge_limit(&chip->chg, &val);
+	return rc < 0 ? rc : count;
+}
+
+static DEVICE_ATTR_RW(redalpha_charge_limit);
+
+static struct attribute *redalpha_charge_limit_attrs[] = {
+	&dev_attr_redalpha_charge_limit.attr,
+	NULL,
+};
+
+static const struct attribute_group redalpha_charge_limit_group = {
+	.attrs = redalpha_charge_limit_attrs,
+};
+
 static int smb5_init_batt_psy(struct smb5 *chip)
 {
 	struct power_supply_config batt_cfg = {};
@@ -3416,6 +3451,10 @@ static int smb5_init_batt_psy(struct smb5 *chip)
 		pr_err("Couldn't register battery power supply\n");
 		return PTR_ERR(chg->batt_psy);
 	}
+
+	rc = devm_device_add_group(chg->dev, &redalpha_charge_limit_group);
+	if (rc < 0)
+		return rc;
 
 	return rc;
 }

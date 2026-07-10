@@ -9,10 +9,10 @@ behavior.
 
 ## Interface
 
-Use the battery power-supply interface:
+Use the dedicated SMB5 device sysfs interface:
 
-- `POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT`: read/write SOC percentage.
-- `POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX`: read-only value `100`.
+- `redalpha_charge_limit`: read/write SOC percentage.
+- The standard `POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT` thermal ABI remains unchanged.
 - A value of `0` disables the limit and clears the feature's `CHG_DISABLE`
   vote, restoring normal charging.
 - Valid enabled values are `1..100`; invalid values return `-EINVAL` and do
@@ -20,8 +20,8 @@ Use the battery power-supply interface:
 - The setting is runtime-only and resets to disabled on reboot unless a later
   userspace component persists and reapplies it.
 
-The existing target mapping of these properties to `system_temp_level` must be
-removed. Thermal-level control remains on its own property and code path.
+The existing target mapping of the standard power-supply properties to
+`system_temp_level` is preserved. Thermal-level control remains unchanged.
 
 ## Behavior
 
