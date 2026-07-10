@@ -5,11 +5,6 @@ on:
     branches: [f2fs-fix-ksu]
   workflow_dispatch:
     inputs:
-      ksu:
-        description: 'Enable ReSukiSU (KernelSU)'
-        required: true
-        type: boolean
-        default: true
       release:
         description: 'Publish the direct flashable ZIP as a GitHub Release asset'
         required: false
@@ -40,7 +35,7 @@ jobs:
             -v ${{ github.workspace }}/build:/workspace \
             -v /tmp/ccache-cache:/root/.ccache \
             -w /workspace \
-            -e KSU=${{ inputs.ksu && '1' || '0' }} \
+            -e KSU=1 \
             -e KBUILD_BUILD_TIMESTAMP='' \
             -e KBUILD_BUILD_VERSION=${{ github.run_number }} \
             kernel-builder \
@@ -55,19 +50,15 @@ jobs:
         run: |
           echo "=== QA Gates ==="
           FAILED=0
-          if [ "${{ inputs.ksu }}" == "true" ]; then
-            if grep -q "CONFIG_KSU=y" out/.config 2>/dev/null; then
-              echo "Gate 0 (KSU): PASS"
-            else
-              echo "Gate 0 (KSU): FAIL"; FAILED=1
-            fi
-            if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
-              echo "Gate 1 (Hook mode): PASS"
-            else
-              echo "Gate 1 (Hook mode): WARN"
-            fi
+          if grep -q "CONFIG_KSU=y" out/.config 2>/dev/null; then
+            echo "Gate 0 (KSU): PASS"
           else
-            echo "Gate 0-1: SKIPPED (vanilla)"
+            echo "Gate 0 (KSU): FAIL"; FAILED=1
+          fi
+          if grep -q "CONFIG_KSU_MANUAL_HOOK=y" out/.config 2>/dev/null; then
+            echo "Gate 1 (Hook mode): PASS"
+          else
+            echo "Gate 1 (Hook mode): WARN"
           fi
           for gate in "KALLSYMS:CONFIG_KALLSYMS=y" "SELinux:CONFIG_SECURITY_SELINUX=y"; do
             NAME="${gate%%:*}"; CFG="${gate##*:}"
@@ -112,7 +103,7 @@ jobs:
         working-directory: build
         env:
           BUILD_NUMBER: ${{ github.run_number }}
-          KSU_ENABLED: ${{ inputs.ksu }}
+          KSU_ENABLED: true
         run: |
           rm -f rp-pocof3_*.zip
           bash scripts/package-kernel.sh
@@ -150,7 +141,6 @@ jobs:
           BUILD_DATE=$(date +'%Y%m%d')
           TAG_NAME="v${BUILD_DATE}-b${BUILD_NUMBER}"
           KSU_LABEL="ReSukiSU"
-          [ "${{ inputs.ksu }}" != "true" ] && KSU_LABEL="Vanilla"
           echo "TAG_NAME=${TAG_NAME}" >> "$GITHUB_ENV"
           echo "KSU_LABEL=${KSU_LABEL}" >> "$GITHUB_ENV"
           echo "BUILD_DATE=${BUILD_DATE}" >> "$GITHUB_ENV"
