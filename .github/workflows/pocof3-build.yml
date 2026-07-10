@@ -11,7 +11,7 @@ on:
         type: boolean
         default: true
       release:
-        description: 'Create GitHub Release'
+        description: 'Publish the direct flashable ZIP as a GitHub Release asset'
         required: false
         type: boolean
         default: false
@@ -108,6 +108,7 @@ jobs:
           echo "=== QA GATES PASSED ==="
 
       - name: Package AnyKernel3 ZIP
+        id: package
         working-directory: build
         env:
           BUILD_NUMBER: ${{ github.run_number }}
@@ -115,11 +116,30 @@ jobs:
         run: |
           rm -f rp-pocof3_*.zip
           bash scripts/package-kernel.sh
+          mapfile -t ZIPS < <(find . -maxdepth 1 -type f -name 'rp-pocof3_*.zip' -print)
+          if [ "${#ZIPS[@]}" -ne 1 ]; then
+            echo "Expected exactly one flashable ZIP, found ${#ZIPS[@]}"
+            printf '%s\n' "${ZIPS[@]}"
+            exit 1
+          fi
+          ZIP_FILE="${ZIPS[0]#./}"
+          unzip -t "$ZIP_FILE" >/dev/null
+          unzip -l "$ZIP_FILE" | grep -q 'anykernel.sh' || { echo "Missing anykernel.sh"; exit 1; }
+          unzip -l "$ZIP_FILE" | grep -q 'META-INF/com/google/android/update-binary' || { echo "Missing recovery installer"; exit 1; }
+          echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
+          echo "ZIP_FILE=${ZIP_FILE}" >> "$GITHUB_ENV"
+          {
+            echo "### Flashable package"
+            echo
+            echo "\`${ZIP_FILE}\` is the validated AnyKernel3 ZIP."
+            echo
+            echo "The Actions artifact is a GitHub wrapper archive by design. Set release=true to publish this ZIP as a direct GitHub Release asset."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload ZIP
         uses: actions/upload-artifact@v6
         with:
-          name: anykernel3-zip
-          path: build/rp-pocof3_*.zip
+          name: flashable-anykernel3
+          path: build/${{ steps.package.outputs.zip_file }}
           if-no-files-found: error
 
       - name: Set release env
@@ -131,11 +151,9 @@ jobs:
           TAG_NAME="v${BUILD_DATE}-b${BUILD_NUMBER}"
           KSU_LABEL="ReSukiSU"
           [ "${{ inputs.ksu }}" != "true" ] && KSU_LABEL="Vanilla"
-          ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
           echo "TAG_NAME=${TAG_NAME}" >> "$GITHUB_ENV"
           echo "KSU_LABEL=${KSU_LABEL}" >> "$GITHUB_ENV"
           echo "BUILD_DATE=${BUILD_DATE}" >> "$GITHUB_ENV"
-          echo "ZIP_FILE=${ZIP_FILE}" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         if: inputs.release == true
@@ -152,4 +170,4 @@ jobs:
             - **Variant:** ${{ env.KSU_LABEL }}
 
             Flash via TWRP.
-          files: build/${{ env.ZIP_FILE }}
+          files: build/${{ steps.package.outputs.zip_file }}
