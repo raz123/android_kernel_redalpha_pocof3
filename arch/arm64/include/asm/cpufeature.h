@@ -567,8 +567,14 @@ static inline bool system_supports_cnp(void)
 
 static inline bool cpu_has_hw_af(void)
 {
-	return IS_ENABLED(CONFIG_ARM64_HW_AFDBM) &&
-		cpus_have_const_cap(ARM64_HW_AF);
+	u64 mmfr1;
+
+	if (!IS_ENABLED(CONFIG_ARM64_HW_AFDBM))
+		return false;
+
+	mmfr1 = read_cpuid(ID_AA64MMFR1_EL1);
+	return cpuid_feature_extract_unsigned_field(mmfr1,
+						ID_AA64MMFR1_HADBS_SHIFT);
 }
 
 #define ARM64_SSBD_UNKNOWN		-1
