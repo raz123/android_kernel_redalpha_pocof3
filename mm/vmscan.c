@@ -4081,6 +4081,7 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	unsigned long end;
 	unsigned long addr;
 	struct page *page;
+	struct lru_gen_mm_walk *walk;
 	int young = 0;
 	unsigned long bitmap[BITS_TO_LONGS(MIN_LRU_BATCH)] = {};
 	struct mem_cgroup *memcg = page_memcg(pvmw->page);
@@ -4094,6 +4095,9 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 
 	if (spin_is_contended(pvmw->ptl))
 		return;
+
+	/* avoid taking the LRU lock under the PTL when possible */
+	walk = current->reclaim_state ? current->reclaim_state->mm_walk : NULL;
 
 	start = max(pvmw->address & PMD_MASK, pvmw->vma->vm_start);
 	end = min(pvmw->address | ~PMD_MASK, pvmw->vma->vm_end - 1) + 1;
