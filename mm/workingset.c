@@ -253,6 +253,8 @@ void lru_gen_refault(struct page *page, void *shadow)
 	bool workingset;
 	unsigned long token;
 	unsigned long min_seq;
+	unsigned long max_seq;
+	unsigned long eviction_seq;
 	struct lruvec *lruvec;
 	struct lru_gen_struct *lrugen;
 	struct mem_cgroup *memcg;
@@ -276,10 +278,14 @@ void lru_gen_refault(struct page *page, void *shadow)
 
 	mod_lruvec_state(lruvec, WORKINGSET_REFAULT, delta);
 
-	min_seq = READ_ONCE(lrugen->min_seq[type]);
-	if ((token >> LRU_REFS_WIDTH) != (min_seq & (EVICTION_MASK >> LRU_REFS_WIDTH)))
+	eviction_seq = token >> LRU_REFS_WIDTH;
+	max_seq = READ_ONCE(lrugen->max_seq);
+	max_seq &= EVICTION_MASK >> LRU_REFS_WIDTH;
+	if ((max_seq >= eviction_seq ? max_seq - eviction_seq :
+	     eviction_seq - max_seq) >= MAX_NR_GENS)
 		goto unlock;
 
+	min_seq = READ_ONCE(lrugen->min_seq[type]);
 	hist = lru_hist_from_seq(min_seq);
 	/* see the comment in page_lru_refs() */
 	refs = (token & (BIT(LRU_REFS_WIDTH) - 1)) + workingset;
