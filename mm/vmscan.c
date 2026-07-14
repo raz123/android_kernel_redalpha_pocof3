@@ -3136,12 +3136,13 @@ static bool positive_ctrl_err(struct ctrl_pos *sp, struct ctrl_pos *pv)
 /* promote pages accessed through page tables */
 static int page_update_gen(struct page *page, int gen)
 {
-	unsigned long new_flags, old_flags = READ_ONCE(page->flags);
+	unsigned long old_flags, new_flags;
 
-	VM_WARN_ON_ONCE(gen >= MAX_NR_GENS);
-	VM_WARN_ON_ONCE(!rcu_read_lock_held());
+	VM_BUG_ON(gen >= MAX_NR_GENS);
+	VM_BUG_ON(!rcu_read_lock_held());
 
 	do {
+		new_flags = old_flags = READ_ONCE(page->flags);
 		/* lru_gen_del_page() has isolated this page? */
 		if (!(old_flags & LRU_GEN_MASK)) {
 			/* for shrink_page_list() */
@@ -3151,7 +3152,8 @@ static int page_update_gen(struct page *page, int gen)
 
 		new_flags = old_flags & ~(LRU_GEN_MASK | LRU_REFS_MASK | LRU_REFS_FLAGS);
 		new_flags |= (gen + 1UL) << LRU_GEN_PGOFF;
-	} while (!try_cmpxchg(&page->flags, &old_flags, new_flags));
+	} while (new_flags != old_flags &&
+		 cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
 
 	return ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
 }
@@ -3162,11 +3164,12 @@ static int page_inc_gen(struct lruvec *lruvec, struct page *page, bool reclaimin
 	int type = page_is_file_cache(page);
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 	int new_gen, old_gen = lru_gen_from_seq(lrugen->min_seq[type]);
-	unsigned long new_flags, old_flags = READ_ONCE(page->flags);
+	unsigned long old_flags, new_flags;
 
-	VM_WARN_ON_ONCE_PAGE(!(old_flags & LRU_GEN_MASK), page);
 	do {
-		new_gen = ((old_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+		new_flags = old_flags = READ_ONCE(page->flags);
+		VM_BUG_ON_PAGE(!(new_flags & LRU_GEN_MASK), page);
+		new_gen = ((new_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
 		/* page_update_gen() has promoted this page? */
 		if (new_gen >= 0 && new_gen != old_gen)
 			return new_gen;
@@ -3178,7 +3181,7 @@ static int page_inc_gen(struct lruvec *lruvec, struct page *page, bool reclaimin
 		/* for end_page_writeback() */
 		if (reclaiming)
 			new_flags |= BIT(PG_reclaim);
-	} while (!try_cmpxchg(&page->flags, &old_flags, new_flags));
+	} while (cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
 
 	lru_gen_update_size(lruvec, page, old_gen, new_gen);
 
@@ -3221,7 +3224,7 @@ static void reset_batch_size(struct lruvec *lruvec, struct lru_gen_mm_walk *walk
 
 		if (lru_gen_is_active(lruvec, gen))
 			lru += LRU_ACTIVE;
-		__update_lru_size(lruvec, lru, zone, delta);
+		update_lru_size(lruvec, lru, zone, delta);
 	}
 }
 
@@ -3849,8 +3852,8 @@ restart:
 
 			WARN_ON_ONCE(delta != (int)delta);
 
-			__update_lru_size(lruvec, lru, zone, delta);
-			__update_lru_size(lruvec, lru + LRU_ACTIVE, zone, -delta);
+			update_lru_size(lruvec, lru, zone, delta);
+			update_lru_size(lruvec, lru + LRU_ACTIVE, zone, -delta);
 		}
 	}
 
