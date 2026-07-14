@@ -155,6 +155,12 @@ static inline int page_lru_refs(struct page *page)
 	return ((flags & LRU_REFS_MASK) >> LRU_REFS_PGOFF) + workingset;
 }
 
+static inline void page_clear_lru_refs(struct page *page)
+{
+	set_mask_bits(&page->flags,
+		      LRU_REFS_MASK | BIT(PG_referenced) | BIT(PG_workingset), 0);
+}
+
 static inline int page_lru_gen(struct page *page)
 {
 	unsigned long flags = READ_ONCE(page->flags);
@@ -222,6 +228,7 @@ static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bo
 {
 	unsigned long seq;
 	unsigned long flags;
+	unsigned long mask;
 	int gen = page_lru_gen(page);
 	int type = page_is_file_cache(page);
 	int zone = page_zonenum(page);
@@ -250,8 +257,15 @@ static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bo
 
 	gen = lru_gen_from_seq(seq);
 	flags = (gen + 1UL) << LRU_GEN_PGOFF;
+	mask = LRU_GEN_MASK;
+	/*
+	 * Don't clear PG_workingset here because it can affect PSI accounting
+	 * if the activation is due to workingset refault.
+	 */
+	if (PageActive(page))
+		mask |= LRU_REFS_MASK | BIT(PG_referenced) | BIT(PG_active);
 	/* see the comment on MIN_NR_GENS about PG_active */
-	set_mask_bits(&page->flags, LRU_GEN_MASK | BIT(PG_active), flags);
+	set_mask_bits(&page->flags, mask, flags);
 
 	lru_gen_update_size(lruvec, page, -1, gen);
 	/* for rotate_reclaimable_page() */
