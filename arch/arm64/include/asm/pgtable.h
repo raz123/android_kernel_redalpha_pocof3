@@ -17,7 +17,6 @@
 #define __ASM_PGTABLE_H
 
 #include <asm/bug.h>
-#include <asm/cpufeature.h>
 #include <asm/proc-fns.h>
 
 #include <asm/bug.h>
@@ -42,6 +41,7 @@
 
 #ifndef __ASSEMBLY__
 
+#include <asm/cpufeature.h>
 #include <asm/cmpxchg.h>
 #include <asm/fixmap.h>
 #include <linux/mmdebug.h>
