@@ -399,7 +399,8 @@ static bool lru_gen_clear_refs(struct page *page)
 	if (gen < 0)
 		return true;
 
-	set_mask_bits(&page->flags, LRU_REFS_MASK | LRU_REFS_FLAGS, 0);
+	set_mask_bits(&page->flags,
+		      LRU_REFS_MASK | BIT(PG_referenced) | BIT(PG_workingset), 0);
 	type = page_is_file_cache(page);
 	pgdat = page_pgdat(page);
 
