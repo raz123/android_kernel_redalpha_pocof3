@@ -358,7 +358,7 @@ static void __lru_cache_activate_page(struct page *page)
 }
 
 #ifdef CONFIG_LRU_GEN
-static void page_inc_refs(struct page *page)
+static void lru_gen_inc_refs(struct page *page)
 {
 	unsigned long new_flags, old_flags = READ_ONCE(page->flags);
 
@@ -385,9 +385,46 @@ static void page_inc_refs(struct page *page)
 		new_flags |= old_flags & ~LRU_REFS_MASK;
 	} while (!try_cmpxchg(&page->flags, &old_flags, new_flags));
 }
-#else
-static void page_inc_refs(struct page *page)
+
+static bool lru_gen_clear_refs(struct page *page)
 {
+	int gen = page_lru_gen(page);
+	int type;
+	bool oldest;
+	struct mem_cgroup *memcg;
+	struct pglist_data *pgdat;
+	struct lru_gen_struct *lrugen;
+
+	/* A page outside an MGLRU list needs no LRU-lock shuffle. */
+	if (gen < 0)
+		return true;
+
+	set_mask_bits(&page->flags, LRU_REFS_MASK | LRU_REFS_FLAGS, 0);
+	type = page_is_file_cache(page);
+	pgdat = page_pgdat(page);
+
+	rcu_read_lock();
+	memcg = page_memcg_rcu(page);
+	if (!mem_cgroup_disabled() && !memcg) {
+		rcu_read_unlock();
+		return false;
+	}
+	lrugen = &mem_cgroup_lruvec(pgdat, memcg)->lrugen;
+
+	/* Whether deactivation can avoid shuffling under the LRU lock. */
+	oldest = gen == lru_gen_from_seq(READ_ONCE(lrugen->min_seq[type]));
+	rcu_read_unlock();
+
+	return oldest;
+}
+#else
+static void lru_gen_inc_refs(struct page *page)
+{
+}
+
+static bool lru_gen_clear_refs(struct page *page)
+{
+	return false;
 }
 #endif /* CONFIG_LRU_GEN */
 
@@ -406,7 +443,7 @@ void mark_page_accessed(struct page *page)
 	page = compound_head(page);
 
 	if (lru_gen_enabled()) {
-		page_inc_refs(page);
+		lru_gen_inc_refs(page);
 		return;
 	}
 
@@ -555,6 +592,9 @@ static void lru_deactivate_file_fn(struct page *page, struct lruvec *lruvec,
 	active = PageActive(page);
 	file = page_is_file_cache(page);
 
+	if (lru_gen_enabled())
+		lru_gen_clear_refs(page);
+
 	del_page_from_lru_list(page, lruvec);
 	ClearPageActive(page);
 	ClearPageReferenced(page);
@@ -587,6 +627,9 @@ static void lru_deactivate_fn(struct page *page, struct lruvec *lruvec,
 	if (PageLRU(page) && !PageUnevictable(page) && (PageActive(page) || lru_gen_enabled())) {
 		int file = page_is_file_cache(page);
 
+		if (lru_gen_enabled())
+			lru_gen_clear_refs(page);
+
 		del_page_from_lru_list(page, lruvec);
 		ClearPageActive(page);
 		ClearPageReferenced(page);
@@ -602,6 +645,9 @@ static void lru_lazyfree_fn(struct page *page, struct lruvec *lruvec,
 {
 	if (PageLRU(page) && PageAnon(page) && PageSwapBacked(page) &&
 	    !PageSwapCache(page) && !PageUnevictable(page)) {
+		if (lru_gen_enabled())
+			lru_gen_clear_refs(page);
+
 		del_page_from_lru_list(page, lruvec);
 		ClearPageActive(page);
 		ClearPageReferenced(page);
@@ -674,7 +720,14 @@ void deactivate_file_page(struct page *page)
 		return;
 
 	if (likely(get_page_unless_zero(page))) {
-		struct pagevec *pvec = &get_cpu_var(lru_deactivate_file_pvecs);
+		struct pagevec *pvec;
+
+		if (lru_gen_enabled() && lru_gen_clear_refs(page)) {
+			put_page(page);
+			return;
+		}
+
+		pvec = &get_cpu_var(lru_deactivate_file_pvecs);
 
 		if (!pagevec_add(pvec, page) || PageCompound(page))
 			pagevec_lru_move_fn(pvec, lru_deactivate_file_fn, NULL);
@@ -697,6 +750,11 @@ void deactivate_page(struct page *page)
 		struct pagevec *pvec = &get_cpu_var(lru_deactivate_pvecs);
 
 		get_page(page);
+		if (lru_gen_enabled() && lru_gen_clear_refs(page)) {
+			put_page(page);
+			return;
+		}
+
 		if (!pagevec_add(pvec, page) || PageCompound(page))
 			pagevec_lru_move_fn(pvec, lru_deactivate_fn, NULL);
 		put_cpu_var(lru_deactivate_pvecs);
