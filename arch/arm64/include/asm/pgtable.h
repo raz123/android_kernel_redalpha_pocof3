@@ -17,6 +17,7 @@
 #define __ASM_PGTABLE_H
 
 #include <asm/bug.h>
+#include <asm/cpufeature.h>
 #include <asm/proc-fns.h>
 
 #include <asm/bug.h>
@@ -820,7 +821,7 @@ extern pgd_t tramp_pg_dir[PTRS_PER_PGD];
 
 extern int kern_addr_valid(unsigned long addr);
 
-#define arch_has_hw_pte_young()	true
+#define arch_has_hw_pte_young cpu_has_hw_af
 
 void pgd_cache_init(void);
 #define pgtable_cache_init	pgd_cache_init
