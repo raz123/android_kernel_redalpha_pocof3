@@ -226,7 +226,8 @@ void *lru_gen_eviction(struct page *page)
 	int type = page_is_file_cache(page);
 	int delta = hpage_nr_pages(page);
 	int refs = page_lru_refs(page);
-	int tier = lru_tier_from_refs(refs);
+	bool workingset = PageWorkingset(page);
+	int tier = lru_tier_from_refs(refs, workingset);
 	struct mem_cgroup *memcg = page_memcg(page);
 	struct pglist_data *pgdat = page_pgdat(page);
 
@@ -243,7 +244,7 @@ void *lru_gen_eviction(struct page *page)
 	hist = lru_hist_from_seq(min_seq);
 	atomic_long_add(delta, &lrugen->evicted[hist][type][tier]);
 
-	return pack_shadow(mem_cgroup_id(memcg), pgdat, token, refs);
+	return pack_shadow(mem_cgroup_id(memcg), pgdat, token, workingset);
 }
 
 void lru_gen_refault(struct page *page, void *shadow)
@@ -281,12 +282,13 @@ void lru_gen_refault(struct page *page, void *shadow)
 		goto unlock;
 
 	hist = lru_hist_from_seq(min_seq);
-	/* see the comment in page_lru_refs() */
-	refs = (token & (BIT(LRU_REFS_WIDTH) - 1)) + workingset;
-	tier = lru_tier_from_refs(refs);
+	refs = (token & (BIT(LRU_REFS_WIDTH) - 1)) + 1;
+	tier = lru_tier_from_refs(refs, workingset);
 
 	atomic_long_add(delta, &lrugen->refaulted[hist][type][tier]);
-	mod_lruvec_state(lruvec, WORKINGSET_ACTIVATE, delta);
+	/* see lru_cache_add() where SetPageActive() will be called */
+	if (lru_gen_in_fault())
+		mod_lruvec_state(lruvec, WORKINGSET_ACTIVATE, delta);
 
 	/*
 	 * Count the following two cases as stalls:
@@ -295,10 +297,12 @@ void lru_gen_refault(struct page *page, void *shadow)
 	 * 2. For pages accessed multiple times through file descriptors,
 	 *    numbers of accesses might have been out of the range.
 	 */
-	if (lru_gen_in_fault() || refs == BIT(LRU_REFS_WIDTH)) {
+	if (workingset) {
 		SetPageWorkingset(page);
 		mod_lruvec_state(lruvec, WORKINGSET_RESTORE, delta);
-	}
+	} else
+		set_mask_bits(&page->flags, LRU_REFS_MASK,
+				      (refs - 1UL) << LRU_REFS_PGOFF);
 unlock:
 	rcu_read_unlock();
 }

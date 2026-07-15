@@ -366,28 +366,44 @@ static void page_inc_refs(struct page *page)
 		return;
 
 	if (!PageReferenced(page)) {
-		SetPageReferenced(page);
+		set_mask_bits(&page->flags, LRU_REFS_MASK, BIT(PG_referenced));
 		return;
 	}
 
-	if (!PageWorkingset(page)) {
-		SetPageWorkingset(page);
-		return;
-	}
-
-	/* see the comment on MAX_NR_TIERS */
+	/* see the comment on LRU_REFS_FLAGS */
 	do {
-		new_flags = old_flags & LRU_REFS_MASK;
-		if (new_flags == LRU_REFS_MASK)
-			break;
+		if ((old_flags & LRU_REFS_MASK) == LRU_REFS_MASK) {
+			if (!PageWorkingset(page))
+				SetPageWorkingset(page);
+			return;
+		}
 
-		new_flags += BIT(LRU_REFS_PGOFF);
-		new_flags |= old_flags & ~LRU_REFS_MASK;
+		new_flags = old_flags + BIT(LRU_REFS_PGOFF);
 	} while (!try_cmpxchg(&page->flags, &old_flags, new_flags));
+}
+
+static bool lru_gen_clear_refs(struct page *page)
+{
+	struct lru_gen_struct *lrugen;
+	int gen = page_lru_gen(page);
+	int type = page_is_file_cache(page);
+
+	if (gen < 0)
+		return true;
+
+	set_mask_bits(&page->flags, LRU_REFS_FLAGS | BIT(PG_workingset), 0);
+
+	lrugen = &mem_cgroup_page_lruvec(page, page_pgdat(page))->lrugen;
+	return gen == lru_gen_from_seq(READ_ONCE(lrugen->min_seq[type]));
 }
 #else
 static void page_inc_refs(struct page *page)
 {
+}
+
+static bool lru_gen_clear_refs(struct page *page)
+{
+	return false;
 }
 #endif /* CONFIG_LRU_GEN */
 
@@ -438,7 +454,7 @@ static void __lru_cache_add(struct page *page)
 {
 	struct pagevec *pvec = &get_cpu_var(lru_add_pvec);
 
-	/* see the comment in lru_gen_add_page() */
+	/* see the comment in lru_gen_page_seq() */
 	if (lru_gen_enabled() && !PageUnevictable(page) && !PageActive(page) &&
 	    lru_gen_in_fault() && !(current->flags & PF_MEMALLOC))
 		SetPageActive(page);
@@ -604,7 +620,10 @@ static void lru_lazyfree_fn(struct page *page, struct lruvec *lruvec,
 	    !PageSwapCache(page) && !PageUnevictable(page)) {
 		del_page_from_lru_list(page, lruvec);
 		ClearPageActive(page);
-		ClearPageReferenced(page);
+		if (lru_gen_enabled())
+			lru_gen_clear_refs(page);
+		else
+			ClearPageReferenced(page);
 		/*
 		 * lazyfree pages are clean anonymous pages. They have
 		 * SwapBacked flag cleared to distinguish normal anonymous
@@ -672,6 +691,8 @@ void deactivate_file_page(struct page *page)
 	 */
 	if (PageUnevictable(page))
 		return;
+	if (lru_gen_enabled() && lru_gen_clear_refs(page))
+		return;
 
 	if (likely(get_page_unless_zero(page))) {
 		struct pagevec *pvec = &get_cpu_var(lru_deactivate_file_pvecs);
@@ -693,7 +714,7 @@ void deactivate_file_page(struct page *page)
 void deactivate_page(struct page *page)
 {
 	if (PageLRU(page) && !PageUnevictable(page) &&
-	    (PageActive(page) || lru_gen_enabled())) {
+	    (lru_gen_enabled() ? !lru_gen_clear_refs(page) : PageActive(page))) {
 		struct pagevec *pvec = &get_cpu_var(lru_deactivate_pvecs);
 
 		get_page(page);
