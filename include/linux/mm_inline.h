@@ -252,23 +252,25 @@ static inline unsigned long lru_gen_page_seq(struct lruvec *lruvec,
 
 static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bool reclaiming)
 {
-	unsigned long seq;
-	unsigned long flags;
-	int gen = page_lru_gen(page);
+	int gen;
+	unsigned long old_flags, new_flags;
 	int type = page_is_file_cache(page);
 	int zone = page_zonenum(page);
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 
-	VM_WARN_ON_ONCE_PAGE(gen != -1, page);
-
 	if (PageUnevictable(page) || !lrugen->enabled)
 		return false;
-	seq = lru_gen_page_seq(lruvec, page, reclaiming);
 
-	gen = lru_gen_from_seq(seq);
-	flags = (gen + 1UL) << LRU_GEN_PGOFF;
-	/* see the comment on MIN_NR_GENS about PG_active */
-	set_mask_bits(&page->flags, LRU_GEN_MASK | BIT(PG_active), flags);
+	gen = lru_gen_from_seq(lru_gen_page_seq(lruvec, page, reclaiming));
+
+	do {
+		new_flags = old_flags = READ_ONCE(page->flags);
+		VM_BUG_ON_PAGE(new_flags & LRU_GEN_MASK, page);
+
+		/* see the comment on MIN_NR_GENS about PG_active */
+		new_flags &= ~(LRU_GEN_MASK | BIT(PG_active));
+		new_flags |= (gen + 1UL) << LRU_GEN_PGOFF;
+	} while (cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
 
 	lru_gen_update_size(lruvec, page, -1, gen);
 	/* for rotate_reclaimable_page() */
@@ -282,19 +284,29 @@ static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bo
 
 static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bool reclaiming)
 {
-	unsigned long flags;
-	int gen = page_lru_gen(page);
+	int gen;
+	unsigned long old_flags, new_flags;
 
-	if (gen < 0)
-		return false;
+	do {
+		new_flags = old_flags = READ_ONCE(page->flags);
+		if (!(new_flags & LRU_GEN_MASK))
+			return false;
 
-	VM_WARN_ON_ONCE_PAGE(PageActive(page), page);
-	VM_WARN_ON_ONCE_PAGE(PageUnevictable(page), page);
+		VM_BUG_ON_PAGE(PageActive(page), page);
+		VM_BUG_ON_PAGE(PageUnevictable(page), page);
 
-	/* for page_migrate_flags() */
-	flags = !reclaiming && lru_gen_is_active(lruvec, gen) ? BIT(PG_active) : 0;
-	flags = set_mask_bits(&page->flags, LRU_GEN_MASK, flags);
-	gen = ((flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+		gen = ((new_flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
+
+		new_flags &= ~LRU_GEN_MASK;
+		if (!(new_flags & BIT(PG_referenced)))
+			new_flags &= ~(LRU_REFS_MASK | BIT(PG_referenced) |
+				       BIT(PG_workingset));
+		/* for shrink_page_list() */
+		if (reclaiming)
+			new_flags &= ~(BIT(PG_referenced) | BIT(PG_reclaim));
+		else if (lru_gen_is_active(lruvec, gen))
+			new_flags |= BIT(PG_active);
+	} while (cmpxchg(&page->flags, old_flags, new_flags) != old_flags);
 
 	lru_gen_update_size(lruvec, page, gen, -1);
 	list_del(&page->lru);
