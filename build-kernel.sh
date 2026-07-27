@@ -3,6 +3,7 @@ set -euo pipefail
 
 DEVICE="${DEVICE:-alioth}"
 KSU="${KSU:-1}"
+KSU_MIN_VERSION="${KSU_MIN_VERSION:-34987}"
 TOOLCHAIN_PATH="/opt/zyc-clang/bin"
 
 # Verify toolchain
@@ -35,10 +36,26 @@ MAKE_ARGS="ARCH=arm64 \
 if [ "$KSU" = "1" ]; then
     git config --global --add safe.directory /workspace/KernelSU
     git config --global --add safe.directory /workspace
+    # ReSukiSU derives KSU_VERSION from the full git history. A shallow clone
+    # reports one commit and makes the kernel claim version 30701.
     if [ -d "KernelSU/.git" ]; then
-        cd KernelSU && git fetch --depth=1 origin HEAD && git reset --hard FETCH_HEAD && cd ..
+        if [ "$(git -C KernelSU rev-parse --is-shallow-repository 2>/dev/null || echo false)" = "true" ]; then
+            git -C KernelSU fetch --unshallow origin
+        else
+            git -C KernelSU fetch origin HEAD
+        fi
+        git -C KernelSU reset --hard FETCH_HEAD
     else
-        git clone --depth=1 https://github.com/ReSukiSU/ReSukiSU KernelSU
+        git clone https://github.com/ReSukiSU/ReSukiSU KernelSU
+    fi
+    KSU_LOCAL_VERSION="$(git -C KernelSU rev-list --count HEAD)"
+    KSU_VERSION=$((30000 + KSU_LOCAL_VERSION + 700))
+    echo "ReSukiSU commit: $(git -C KernelSU rev-parse HEAD)"
+    echo "ReSukiSU history count: $KSU_LOCAL_VERSION"
+    echo "ReSukiSU kernel version: $KSU_VERSION"
+    if [ "$KSU_VERSION" -lt "$KSU_MIN_VERSION" ]; then
+        echo "ERROR: ReSukiSU kernel version $KSU_VERSION is below required $KSU_MIN_VERSION"
+        exit 1
     fi
     ln -sf ../KernelSU/kernel drivers/kernelsu
     # Patch ReSukiSU for MANUAL_HOOK compatibility (maps SUSFS symbol names)
