@@ -347,9 +347,8 @@ enum {
  * stored in min_seq[] separately for anon and file types as clean file pages
  * can be evicted regardless of swap constraints.
  *
- * Normally anon and file min_seq are in sync. But if swapping is constrained,
- * e.g., out of swap space, file min_seq is allowed to advance and leave anon
- * min_seq behind.
+ * Anon and file min_seq can advance independently. If swapping is constrained,
+ * e.g., out of swap space, anon min_seq can lag behind file min_seq.
  *
  * The number of pages in each generation is eventually consistent and therefore
  * can be transiently negative when reset_batch_size() is pending.
@@ -369,8 +368,8 @@ struct lru_gen_struct {
 	unsigned long avg_refaulted[ANON_AND_FILE][MAX_NR_TIERS];
 	/* the exponential moving average of evicted+protected */
 	unsigned long avg_total[ANON_AND_FILE][MAX_NR_TIERS];
-	/* the first tier doesn't need protection, hence the minus one */
-	unsigned long protected[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS - 1];
+	/* can only be modified under the LRU lock */
+	unsigned long protected[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS];
 	/* can be modified without holding the LRU lock */
 	atomic_long_t evicted[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS];
 	atomic_long_t refaulted[NR_HIST_GENS][ANON_AND_FILE][MAX_NR_TIERS];
@@ -421,7 +420,7 @@ struct lru_gen_mm_walk {
 	int mm_stats[NR_MM_STATS];
 	/* total batched items */
 	int batched;
-	bool can_swap;
+	int swappiness;
 	bool force_scan;
 };
 
