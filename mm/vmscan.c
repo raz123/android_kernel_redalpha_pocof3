@@ -2045,6 +2045,25 @@ static int current_may_throttle(void)
 		bdi_write_congested(current->backing_dev_info);
 }
 
+static void handle_reclaim_writeback(unsigned long nr_taken,
+				     struct scan_control *sc,
+				     struct reclaim_stat *stat,
+				     bool file)
+{
+	/* Wake flushers when reclaim finds only dirty pages not queued for IO. */
+	if (stat->nr_unqueued_dirty == nr_taken)
+		wakeup_flusher_threads(WB_REASON_VMSCAN);
+
+	sc->nr.dirty += stat->nr_dirty;
+	sc->nr.congested += stat->nr_congested;
+	sc->nr.unqueued_dirty += stat->nr_unqueued_dirty;
+	sc->nr.writeback += stat->nr_writeback;
+	sc->nr.immediate += stat->nr_immediate;
+	sc->nr.taken += nr_taken;
+	if (file)
+		sc->nr.file_taken += nr_taken;
+}
+
 /*
  * shrink_inactive_list() is a helper for shrink_node().  It returns the number
  * of reclaimed pages
@@ -2132,28 +2151,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	mem_cgroup_uncharge_list(&page_list);
 	free_unref_page_list(&page_list);
 
-	/*
-	 * If dirty pages are scanned that are not queued for IO, it
-	 * implies that flushers are not doing their job. This can
-	 * happen when memory pressure pushes dirty pages to the end of
-	 * the LRU before the dirty limits are breached and the dirty
-	 * data has expired. It can also happen when the proportion of
-	 * dirty pages grows not through writes but through memory
-	 * pressure reclaiming all the clean cache. And in some cases,
-	 * the flushers simply cannot keep up with the allocation
-	 * rate. Nudge the flusher threads in case they are asleep.
-	 */
-	if (stat.nr_unqueued_dirty == nr_taken)
-		wakeup_flusher_threads(WB_REASON_VMSCAN);
-
-	sc->nr.dirty += stat.nr_dirty;
-	sc->nr.congested += stat.nr_congested;
-	sc->nr.unqueued_dirty += stat.nr_unqueued_dirty;
-	sc->nr.writeback += stat.nr_writeback;
-	sc->nr.immediate += stat.nr_immediate;
-	sc->nr.taken += nr_taken;
-	if (file)
-		sc->nr.file_taken += nr_taken;
+	handle_reclaim_writeback(nr_taken, sc, &stat, file);
 
 	trace_mm_vmscan_lru_shrink_inactive(pgdat->node_id,
 			nr_scanned, nr_reclaimed, &stat, sc->priority, file);
@@ -3204,7 +3202,7 @@ static int page_update_gen(struct page *page, int gen)
 }
 
 /* protect pages accessed multiple times through file descriptors */
-static int page_inc_gen(struct lruvec *lruvec, struct page *page, bool reclaiming)
+static int page_inc_gen(struct lruvec *lruvec, struct page *page)
 {
 	int type = page_is_file_cache(page);
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
@@ -3222,9 +3220,6 @@ static int page_inc_gen(struct lruvec *lruvec, struct page *page, bool reclaimin
 
 		new_flags = old_flags & ~(LRU_GEN_MASK | LRU_REFS_FLAGS);
 		new_flags |= (new_gen + 1UL) << LRU_GEN_PGOFF;
-		/* for end_page_writeback() */
-		if (reclaiming)
-			new_flags |= BIT(PG_reclaim);
 	} while (!try_cmpxchg(&page->flags, &old_flags, new_flags));
 
 	lru_gen_update_size(lruvec, page, old_gen, new_gen);
@@ -3801,7 +3796,7 @@ static bool inc_min_seq(struct lruvec *lruvec, int type, int swappiness)
 			VM_WARN_ON_ONCE_PAGE(page_is_file_cache(page) != type, page);
 			VM_WARN_ON_ONCE_PAGE(page_zonenum(page) != zone, page);
 
-			new_gen = page_inc_gen(lruvec, page, false);
+			new_gen = page_inc_gen(lruvec, page);
 			list_move_tail(&page->lru, &lrugen->lists[new_gen][type][zone]);
 
 			WRITE_ONCE(lrugen->protected[hist][type][tier],
@@ -4264,7 +4259,7 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, struct scan_cont
 
 	/* protected */
 	if (tier > tier_idx || refs + workingset == BIT(LRU_REFS_WIDTH) + 1) {
-		gen = page_inc_gen(lruvec, page, false);
+		gen = page_inc_gen(lruvec, page);
 		list_move_tail(&page->lru, &lrugen->lists[gen][type][zone]);
 
 		/* don't count the workingset being lazily promoted */
@@ -4279,16 +4274,8 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, struct scan_cont
 
 	/* ineligible */
 	if (zone > sc->reclaim_idx || skip_cma(page, sc)) {
-		gen = page_inc_gen(lruvec, page, false);
+		gen = page_inc_gen(lruvec, page);
 		list_move_tail(&page->lru, &lrugen->lists[gen][type][zone]);
-		return true;
-	}
-
-	/* waiting for writeback */
-	if (PageWriteback(page) ||
-	    (type == LRU_GEN_FILE && PageDirty(page))) {
-		gen = page_inc_gen(lruvec, page, true);
-		list_move(&page->lru, &lrugen->lists[gen][type][zone]);
 		return true;
 	}
 
@@ -4303,13 +4290,10 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 	if (!sc->may_unmap && page_mapped(page))
 		return false;
 
-	/* swapping inhibited */
-	if (!(sc->may_writepage && (sc->gfp_mask & __GFP_IO)) &&
+	/* writeback inhibited */
+	if (!sc->may_writepage &&
 	    (PageDirty(page) || (PageAnon(page) && !PageSwapCache(page)))) {
-		if (!sc->may_writepage)
-			__count_vm_event(LRU_NO_WRITEPAGE);
-		if (!(sc->gfp_mask & __GFP_IO))
-			__count_vm_event(LRU_NO_GFP_IO);
+		__count_vm_event(LRU_NO_WRITEPAGE);
 		return false;
 	}
 
@@ -4325,9 +4309,6 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 	/* see the comment on LRU_REFS_FLAGS */
 	if (!PageReferenced(page))
 		set_mask_bits(&page->flags, LRU_REFS_MASK, 0);
-
-	/* for shrink_page_list() */
-	ClearPageReclaim(page);
 
 	success = lru_gen_del_page(lruvec, page, true);
 	VM_WARN_ON_ONCE_PAGE(!success, page);
@@ -4495,6 +4476,7 @@ static int evict_pages(unsigned long nr_to_scan, struct lruvec *lruvec,
 	struct page *page;
 	struct page *next;
 	enum vm_event_item item;
+	struct reclaim_stat stat = {};
 	struct lru_gen_mm_walk *walk;
 	bool skip_retry = false;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
@@ -4518,8 +4500,14 @@ static int evict_pages(unsigned long nr_to_scan, struct lruvec *lruvec,
 		return scanned;
 
 retry:
-	reclaimed = shrink_page_list(&list, pgdat, sc, 0, NULL, false);
+	reclaimed = shrink_page_list(&list, pgdat, sc, 0, &stat, false);
 	sc->nr_reclaimed += reclaimed;
+	if (isolated)
+		handle_reclaim_writeback(isolated, sc, &stat,
+					type == LRU_GEN_FILE);
+	trace_mm_vmscan_lru_shrink_inactive(pgdat->node_id,
+			type_scanned, reclaimed, &stat, sc->priority,
+			type ? LRU_INACTIVE_FILE : LRU_INACTIVE_ANON);
 
 	list_for_each_entry_safe_reverse(page, next, &list, lru) {
 		DEFINE_MIN_SEQ(lruvec);
@@ -4571,6 +4559,7 @@ retry:
 
 	if (!list_empty(&list)) {
 		skip_retry = true;
+		isolated = 0;
 		goto retry;
 	}
 
