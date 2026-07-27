@@ -3818,10 +3818,9 @@ done:
 	return true;
 }
 
-static bool try_to_inc_min_seq(struct lruvec *lruvec, int swappiness)
+static void try_to_inc_min_seq(struct lruvec *lruvec, int swappiness)
 {
 	int gen, type, zone;
-	bool success = false;
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 
 	VM_WARN_ON_ONCE(!seq_is_valid(lruvec));
@@ -3842,11 +3841,8 @@ next:
 		if (seq != lrugen->min_seq[type]) {
 			reset_ctrl_pos(lruvec, type, true);
 			WRITE_ONCE(lrugen->min_seq[type], seq);
-			success = true;
 		}
 	}
-
-	return success;
 }
 
 static void inc_max_seq(struct lruvec *lruvec, int swappiness)
@@ -3957,19 +3953,14 @@ done:
 	return success;
 }
 
-static bool should_run_aging(struct lruvec *lruvec, unsigned long max_seq,
-			     unsigned long *min_seq, struct scan_control *sc,
-			     int swappiness, unsigned long *nr_to_scan)
+static unsigned long lruvec_evictable_size(struct lruvec *lruvec,
+					   unsigned long max_seq,
+					   unsigned long *min_seq,
+					   int swappiness)
 {
 	int gen, type, zone;
 	unsigned long size = 0;
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
-	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
-
-	*nr_to_scan = 0;
-	/* have to run aging, since eviction is not possible anymore */
-	if (evictable_min_seq(min_seq, swappiness) + MIN_NR_GENS > max_seq)
-		return true;
 
 	for_each_evictable_type(type, swappiness) {
 		unsigned long seq;
@@ -3982,8 +3973,24 @@ static bool should_run_aging(struct lruvec *lruvec, unsigned long max_seq,
 		}
 	}
 
+	return size;
+}
+
+static bool should_run_aging(struct lruvec *lruvec, unsigned long max_seq,
+			     unsigned long *min_seq, struct scan_control *sc,
+			     int swappiness, unsigned long *nr_to_scan)
+{
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
+
+	*nr_to_scan = 0;
+	/* have to run aging, since eviction is not possible anymore */
+	if (evictable_min_seq(min_seq, swappiness) + MIN_NR_GENS > max_seq)
+		return true;
+
+	*nr_to_scan = lruvec_evictable_size(lruvec, max_seq, min_seq, swappiness);
 	/* try to scrape all its memory if this memcg was deleted */
-	*nr_to_scan = mem_cgroup_online(memcg) ? (size >> sc->priority) : size;
+	if (mem_cgroup_online(memcg))
+		*nr_to_scan >>= sc->priority;
 
 	/* better to run aging even though eviction is still possible */
 	return evictable_min_seq(min_seq, swappiness) + MIN_NR_GENS == max_seq;
@@ -4328,8 +4335,9 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 	return true;
 }
 
-static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
-		      int type, int tier, struct list_head *list)
+static int scan_pages(unsigned long nr_to_scan, struct lruvec *lruvec,
+		      struct scan_control *sc, int type, int tier,
+		      struct list_head *list)
 {
 	int i;
 	int gen;
@@ -4337,10 +4345,11 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 	int sorted = 0;
 	int scanned = 0;
 	int isolated = 0;
-	int remaining = MAX_LRU_BATCH;
+	unsigned long remaining = nr_to_scan;
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 
+	VM_WARN_ON_ONCE(nr_to_scan > MAX_LRU_BATCH);
 	VM_WARN_ON_ONCE(!list_empty(list));
 
 	if (get_nr_gens(lruvec, type) == MIN_NR_GENS)
@@ -4399,12 +4408,7 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 	__count_memcg_events(memcg, item, isolated);
 	__count_memcg_events(memcg, PGREFILL, sorted);
 
-	/*
-	 * There might not be eligible pages due to reclaim_idx, may_unmap and
-	 * may_writepage. Check the remaining to prevent livelock if it's not
-	 * making progress.
-	 */
-	return isolated || !remaining ? scanned : 0;
+	return scanned;
 }
 
 static int get_tier_idx(struct lruvec *lruvec, int type)
@@ -4447,34 +4451,45 @@ static int get_type_to_scan(struct lruvec *lruvec, int swappiness)
 	return positive_ctrl_err(&sp, &pv);
 }
 
-static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
-			 int *type_scanned, struct list_head *list)
+static int isolate_pages(unsigned long nr_to_scan, struct lruvec *lruvec,
+			 struct scan_control *sc, int swappiness,
+			 struct list_head *list, int *isolated,
+			 int *isolate_type, int *isolate_scanned)
 {
 	int i;
+	int total_scanned = 0;
 	int type = get_type_to_scan(lruvec, swappiness);
 
+	*isolated = 0;
 	for_each_evictable_type(i, swappiness) {
 		int tier = get_tier_idx(lruvec, type);
 		int scanned;
 
-		*type_scanned = type;
+		scanned = scan_pages(nr_to_scan, lruvec, sc, type, tier, list);
+		total_scanned += scanned;
+		if (*isolated) {
+			*isolate_type = type;
+			*isolate_scanned = scanned;
+			break;
+		}
 
-		scanned = scan_pages(lruvec, sc, type, tier, list);
-		if (scanned)
-			return scanned;
-
-		type = !type;
+		/* Keep the selected type when it made scan progress. */
+		if (!scanned)
+			type = !type;
 	}
 
-	return 0;
+	return total_scanned;
 }
 
-static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
+static int evict_pages(unsigned long nr_to_scan, struct lruvec *lruvec,
+		       struct scan_control *sc, int swappiness,
 		       bool *need_swapping)
 {
-	int type;
+	int type = LRU_GEN_FILE;
 	int scanned;
 	int reclaimed;
+	int isolated = 0;
+	int type_scanned = 0;
 	LIST_HEAD(list);
 	LIST_HEAD(clean);
 	struct page *page;
@@ -4482,19 +4497,20 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 	enum vm_event_item item;
 	struct lru_gen_mm_walk *walk;
 	bool skip_retry = false;
-	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 
 	spin_lock_irq(&pgdat->lru_lock);
 
-	scanned = isolate_pages(lruvec, sc, swappiness, &type, &list);
+	/* In case page deletion left empty old generations, flush them. */
+	try_to_inc_min_seq(lruvec, swappiness);
 
-	scanned += try_to_inc_min_seq(lruvec, swappiness);
+	scanned = isolate_pages(nr_to_scan, lruvec, sc, swappiness, &list,
+				&isolated, &type, &type_scanned);
 
-	if (evictable_min_seq(lrugen->min_seq, swappiness) + MIN_NR_GENS >
-	    lrugen->max_seq)
-		scanned = 0;
+	/* Scanning may have emptied the oldest generation, flush it. */
+	if (scanned)
+		try_to_inc_min_seq(lruvec, swappiness);
 
 	spin_unlock_irq(&pgdat->lru_lock);
 
@@ -4655,7 +4671,8 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 	struct blk_plug plug;
 	bool need_aging = false;
 	bool need_swapping = false;
-	unsigned long scanned = 0;
+	int swappiness;
+	unsigned long nr_to_scan;
 	unsigned long reclaimed = sc->nr_reclaimed;
 	DEFINE_MAX_SEQ(lruvec);
 
@@ -4665,33 +4682,30 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 
 	set_mm_walk(lruvec_pgdat(lruvec));
 
-	while (true) {
+	if (sc->may_swap)
+		swappiness = get_swappiness(lruvec, sc);
+	else if (global_reclaim(sc) && get_swappiness(lruvec, sc))
+		swappiness = 1;
+	else
+		swappiness = 0;
+
+	nr_to_scan = get_nr_to_scan(lruvec, sc, swappiness, &need_aging);
+
+	while (nr_to_scan) {
 		int delta;
-		int swappiness;
-		unsigned long nr_to_scan;
 
-		if (sc->may_swap)
-			swappiness = get_swappiness(lruvec, sc);
-		else if (global_reclaim(sc) && get_swappiness(lruvec, sc))
-			swappiness = 1;
-		else
-			swappiness = 0;
-
-		nr_to_scan = get_nr_to_scan(lruvec, sc, swappiness, &need_aging);
-		if (!nr_to_scan)
-			goto done;
-
-		delta = evict_pages(lruvec, sc, swappiness, &need_swapping);
+		delta = evict_pages(min(nr_to_scan, (unsigned long)MIN_LRU_BATCH),
+				    lruvec, sc, swappiness, &need_swapping);
 		if (!delta)
 			goto done;
 
-		scanned += delta;
-		if (scanned >= nr_to_scan)
+		if (delta >= nr_to_scan)
 			break;
 
 		if (should_abort_scan(lruvec, max_seq, sc, need_swapping))
 			break;
 
+		nr_to_scan -= delta;
 		cond_resched();
 	}
 
@@ -5142,7 +5156,9 @@ static int run_eviction(struct lruvec *lruvec, unsigned long seq, struct scan_co
 		if (sc->nr_reclaimed >= nr_to_reclaim)
 			return 0;
 
-		if (!evict_pages(lruvec, sc, swappiness, NULL))
+		if (!evict_pages(min(nr_to_reclaim - sc->nr_reclaimed,
+				    (unsigned long)MAX_LRU_BATCH),
+				 lruvec, sc, swappiness, NULL))
 			return 0;
 
 		cond_resched();
