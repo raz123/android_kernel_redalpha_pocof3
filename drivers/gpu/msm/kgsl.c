@@ -21,6 +21,8 @@
 #include <linux/security.h>
 #include <linux/sort.h>
 #include <asm/cacheflush.h>
+#include <linux/cpumask.h>
+#include <linux/irq.h>
 
 #include "kgsl_compat.h"
 #include "kgsl_debugfs.h"
@@ -5296,12 +5298,17 @@ int kgsl_request_irq(struct platform_device *pdev, const  char *name,
 
 	ret = devm_request_irq(&pdev->dev, num, handler, IRQF_TRIGGER_HIGH,
 		name, data);
-
-	if (ret)
+	if (ret) {
 		dev_err(&pdev->dev, "Unable to get interrupt %s: %d\n",
 			name, ret);
+		return ret;
+	}
 
-	return ret ? ret : num;
+	/* Spread GPU IRQ off CPU0 for better load distribution */
+	irq_set_affinity_hint(num, cpumask_of(1));
+
+	return num;
+
 }
 
 int kgsl_of_property_read_ddrtype(struct device_node *node, const char *base,

@@ -2,48 +2,69 @@
 #=== UCLAMP Tuning ============================================================
 #
 # Installed as part of RedAlpha kernel builds for Poco F3 (alioth/SM8250).
-# Sets utilization clamping values per cpuset after boot.
+# Sets utilization clamping values per cpu cgroup after boot.
 #
 # Requires: CONFIG_UCLAMP_TASK=y, CONFIG_UCLAMP_TASK_GROUP=y in kernel.
 #
-# Values use 0-1024 scale (0% to 100% of CPU capacity).
-# - uclamp.min: floor — task gets at least this much capacity
-# - uclamp.max: ceiling — task never exceeds this
+# NOTE: UCLAMP guides TASK PLACEMENT (EAS big vs little core).
+# Frequency boosting needs schedtune.boost at /dev/stune/<group>/
+# — this script does NOT touch schedtune.
 #
-# INSTALLATION:
-#   Copy to /data/adb/ksu/service.d/uclamp_tuning.sh
-#   chmod +x /data/adb/ksu/service.d/uclamp_tuning.sh
+# Values use 0.00-1.00 scale (0% to 100% of CPU capacity).
+# - uclamp.min: floor — task needs at least this much capacity
+# - uclamp.max: ceiling — task never exceeds this
+# - uclamp.latency_sensitive: prefer idle CPU placement
+#
+# Reviewed by Android kernel/scheduler specialist (2026-07-03, revised).
+# Battery-aware final values:
+#  - UCLAMP guides task placement (EAS), NOT frequency (schedtune).
+#  - Only top-app gets min=10% for first-frame latency.
+#  - foreground min=0.00 → uclamp_boosted=false → LS=1 prefers
+#    little idle CPUs (battery-safe). Big-core bias would cost standby.
+#  - RT UCLAMP is a no-op on WALT — RT uses RT scheduler, not EAS,
+#    and frequency boost comes from schedtune's 50ms boost-hold.
+#    rt group is intentionally NOT set here.
+#  - Buckets 20 is overkill but harmless.
+#
 #==============================================================================
 
-CPUSET_DIR=/dev/cpuset
+CPU_DIR=/dev/cpuctl
 
-# Global defaults
-sysctl -w kernel.sched_util_clamp_min=128 2>/dev/null
-
-# top-app — interactive/foreground app: minimum floor, prefers big cores
-if [ -f "$CPUSET_DIR/top-app/uclamp.min" ]; then
-  echo 10    > "$CPUSET_DIR/top-app/uclamp.min"
-  echo max   > "$CPUSET_DIR/top-app/uclamp.max"
-  echo 1     > "$CPUSET_DIR/top-app/uclamp.latency_sensitive"
+# top-app — interactive/foreground app: big cores, fast frequency ramp
+# min=10% ensures uclamp_boosted=true → LS=1 drives to big idle CPUs
+if [ -f "$CPU_DIR/top-app/cpu.uclamp.min" ]; then
+  echo 0.10 > "$CPU_DIR/top-app/cpu.uclamp.min"
+  echo 1.00 > "$CPU_DIR/top-app/cpu.uclamp.max"
+  echo 1    > "$CPU_DIR/top-app/cpu.uclamp.latency_sensitive"
 fi
 
-# foreground — system services visible to user: moderate
-if [ -f "$CPUSET_DIR/foreground/uclamp.min" ]; then
-  echo 0     > "$CPUSET_DIR/foreground/uclamp.min"
-  echo 50    > "$CPUSET_DIR/foreground/uclamp.max"
-  echo 1     > "$CPUSET_DIR/foreground/uclamp.latency_sensitive"
+# foreground — visible system services: battery-safe, no boost
+# min=0.00 → uclamp_boosted=false → LS=1 prefers little idle CPUs
+# (at min=0.05 it would bias to big cores — bad for battery)
+if [ -f "$CPU_DIR/foreground/cpu.uclamp.min" ]; then
+  echo 0.00 > "$CPU_DIR/foreground/cpu.uclamp.min"
+  echo 1.00 > "$CPU_DIR/foreground/cpu.uclamp.max"
+  echo 1    > "$CPU_DIR/foreground/cpu.uclamp.latency_sensitive"
 fi
 
-# background — cached apps: low priority, stay on little cores
-if [ -f "$CPUSET_DIR/background/uclamp.min" ]; then
-  echo 0     > "$CPUSET_DIR/background/uclamp.min"
-  echo 30    > "$CPUSET_DIR/background/uclamp.max"
-  echo 0     > "$CPUSET_DIR/background/uclamp.latency_sensitive"
+# background — cached apps: pack efficiently on expanded 4-core cpuset
+# max=20% prevents background from appearing to need full core capacity
+if [ -f "$CPU_DIR/background/cpu.uclamp.min" ]; then
+  echo 0.00 > "$CPU_DIR/background/cpu.uclamp.min"
+  echo 0.20 > "$CPU_DIR/background/cpu.uclamp.max"
+  echo 0    > "$CPU_DIR/background/cpu.uclamp.latency_sensitive"
 fi
 
-# system-background — services: minimal impact
-if [ -f "$CPUSET_DIR/system-background/uclamp.min" ]; then
-  echo 0     > "$CPUSET_DIR/system-background/uclamp.min"
-  echo 40    > "$CPUSET_DIR/system-background/uclamp.max"
-  echo 0     > "$CPUSET_DIR/system-background/uclamp.latency_sensitive"
+# system-background — services: moderate cap
+if [ -f "$CPU_DIR/system-background/cpu.uclamp.min" ]; then
+  echo 0.00 > "$CPU_DIR/system-background/cpu.uclamp.min"
+  echo 0.50 > "$CPU_DIR/system-background/cpu.uclamp.max"
+  echo 0    > "$CPU_DIR/system-background/cpu.uclamp.latency_sensitive"
+fi
+
+# system — shell/adbd/debug: loose cap
+if [ -f "$CPU_DIR/system/cpu.uclamp.min" ]; then
+  echo 0.00 > "$CPU_DIR/system/cpu.uclamp.min"
+  echo 0.80 > "$CPU_DIR/system/cpu.uclamp.max"
+  echo 0    > "$CPU_DIR/system/cpu.uclamp.latency_sensitive"
 fi

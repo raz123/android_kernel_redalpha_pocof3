@@ -87,6 +87,9 @@ if [ "$KSU" = "1" ]; then
             --disable KPM
     fi
 fi
+if [ -n "${KBUILD_BUILD_VERSION:-}" ]; then
+    scripts/config --file out/.config --set-str LOCALVERSION "-aptusitu-perf-b${KBUILD_BUILD_VERSION}"
+fi
 # Resolve dependency chain after config changes
 make $MAKE_ARGS olddefconfig
 # Kernel 4.19 compat: MODULE_IMPORT_NS not defined until 5.x+
@@ -119,6 +122,7 @@ fi
 find out/ -name "*.ko" -exec cp {} out/modules/ \; 2>/dev/null || true
 [ -f "zram-resize.sh" ] && cp zram-resize.sh out/modules/
 [ -f "uclamp_tuning.sh" ] && cp uclamp_tuning.sh out/modules/
+[ -f "vm_tuning.sh" ] && cp vm_tuning.sh out/modules/
 # ccache stats
 echo "=== ccache stats ==="
 ccache -s 2>/dev/null | grep -E 'Hits:|Misses:|Cache size' || echo "ccache stats unavailable"

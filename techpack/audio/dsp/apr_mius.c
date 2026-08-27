@@ -359,80 +359,46 @@ static int32_t process_sensorhub_msg(uint32_t *payload, uint32_t payload_size)
 #endif
 
 extern int us_afe_callback(int data);
-static int ups_event;
 
 int32_t mius_process_apr_payload(uint32_t *payload)
 {
-	uint32_t payload_size = 0;
+	uint32_t payload_size;
 	int32_t  ret = -1;
 
-	//if (payload[0] == MIUS_ULTRASOUND_MODULE_TX) {
-	if (true) {
-		/* payload format
-		*   payload[0] = Module ID
-		*   payload[1] = Param ID
-		*   payload[2] = LSB - payload size
-		*		MSB - reserved(TBD)
-		*   payload[3] = US data payload starts from here
-		*/
-		payload_size = payload[2] & 0xFFFF;
-#if 0
-		switch (payload[1]) {
-		case MIUS_ULTRASOUND_PARAM_ID_ENGINE_VERSION:
-			ret = process_version_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_BUILD_BRANCH:
-			ret = process_branch_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_TAG:
-			ret = process_tag_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_CALIBRATION_DATA:
-			ret = process_calibration_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_CALIBRATION_V2_DATA:
-			ret = process_calibration_v2_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_ML_DATA:
-			ret = process_ml_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_DIAGNOSTICS_DATA:
-			ret = process_diagnostics_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_SENSORHUB:
-			ret = process_sensorhub_msg(payload, payload_size);
-			break;
-		case MIUS_ULTRASOUND_PARAM_ID_ENGINE_DATA:
-#endif
-			printk(KERN_DEBUG "[MIUS] mi us payload[3] = %d", (int)payload[3]);
-			if (payload[3] == 0 || payload[3] == 1) {
-				ups_event = payload[3];
-				ret = (int32_t)us_afe_callback((const uint32_t)payload[3]);
-			} else {
+	/* payload format
+	 *   payload[0] = Module ID
+	 *   payload[1] = Param ID
+	 *   payload[2] = LSB - payload size, MSB - reserved
+	 *   payload[3] = US data payload starts from here
+	 */
+	payload_size = payload[2] & 0xFFFF;
 
-				ups_event = ups_event ^ 1;
-				printk(KERN_DEBUG "[MIUS] >> change ups to %d", ups_event);
-				ret = (int32_t)us_afe_callback((uint32_t)ups_event);
-			}
+	if (payload_size == 0)
+		return -EINVAL;
 
-			if (ret != 0) {
-				pr_err("[MIUS] : failed to push apr payload to mius device");
-				return ret;
-			}
-			ret = payload_size;
-#if 0
-			break;
-		default:
-			{
-				pr_err("[MIUS] : mius_process_apr_payload, Illegal paramId:%u", payload[1]);
-			}
-			break;
+	{
+		uint32_t max_copy;
+
+		/* Bound against MIUS buffer and remaining msg */
+		max_copy = min(payload_size, (uint32_t)MIUS_MSG_BUF_SIZE);
+		if (max_copy > 0) {
+			ret = mius_data_push(MIUS_ALL_DEVICES,
+				(const char *)&payload[3],
+				max_copy,
+				MIUS_DATA_PUSH_FROM_KERNEL);
 		}
-#endif
-	} else {
-		pr_debug("[MIUS]: Invalid Ultrasound Module ID %d\n",
-			payload[0]);
+		if (ret != 0) {
+			pr_err("[MIUS] : failed to push apr payload to mius device");
+			return ret;
+		}
+		ret = max_copy;
 	}
+
+	/* Feed proximity data to IIO buffer for HAL polling
+	 * via /dev/iio:device3. payload[3] holds 0 (FAR) or 1 (NEAR).
+	 */
+	us_afe_callback(payload[3] ? 1 : 0);
+
 	return ret;
 }
 

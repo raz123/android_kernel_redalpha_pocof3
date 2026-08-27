@@ -37,7 +37,21 @@ USERINCLUDE     += \
 # Needed to be compatible with the O= option
 LINUXINCLUDE    += \
                 -I$(srctree)/techpack/camera-xiaomi/include/uapi \
-                -I$(srctree)/techpack/camera-xiaomi/include
+                -I$(srctree)/techpack/camera-xiaomi/include \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_cdm \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_core \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_cpas \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_cust \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_fd \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_icp \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_isp \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_jpeg \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_lrme \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_req_mgr \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_sensor_module \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_smmu \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_sync \
+                -I$(srctree)/techpack/camera-xiaomi/drivers/cam_utils
 obj-y += drivers/
 else
 $(info Target not found)

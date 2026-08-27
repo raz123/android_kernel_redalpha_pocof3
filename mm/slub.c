@@ -3633,6 +3633,8 @@ static int calculate_sizes(struct kmem_cache *s, int forced_order)
 		s->offset = size;
 		size += sizeof(void *);
 	}
+	if (!s->offset && size > sizeof(void *))
+		s->offset = ALIGN(size / 2, sizeof(void *));
 
 #ifdef CONFIG_SLUB_DEBUG
 	if (flags & SLAB_STORE_USER)

@@ -1,0 +1,6 @@
+id=fix_vm_tuning
+name=VM Tuning
+version=1.0
+versionCode=1
+author=RedAlpha
+description=Tunes vm.swappiness, min_free_kbytes, watermark_scale_factor, extfrag_threshold, vfs_cache_pressure for 8GB SM8250

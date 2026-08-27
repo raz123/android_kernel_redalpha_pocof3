@@ -1545,6 +1545,7 @@ static int smblib_notifier_call(struct notifier_block *nb,
 		if (!chg->bms_psy)
 			chg->bms_psy = psy;
 		if (ev == PSY_EVENT_PROP_CHANGED) {
+			schedule_delayed_work(&chg->charge_limit_work, 0);
 #ifdef CONFIG_BATT_VERIFY_BY_DS28E16
 			rc = power_supply_get_property(chg->bms_psy,
 					POWER_SUPPLY_PROP_AUTHENTIC, &pval);
@@ -3869,6 +3870,8 @@ static void smblib_reg_work(struct work_struct *work)
 	union power_supply_propval val;
 	int icl_settle, usb_cur_in, usb_vol_in, icl_sts;
 	int charger_type, typec_mode, typec_orientation, esr_uohms_nominal, esr_uohms_actual, resistance;
+
+	schedule_delayed_work(&chg->charge_limit_work, 0);
 
 	dump_regs(chg);
 	rc = smblib_get_prop_usb_present(chg, &val);
@@ -7719,8 +7722,67 @@ irqreturn_t batt_psy_changed_irq_handler(int irq, void *data)
 	struct smb_charger *chg = irq_data->parent_data;
 
 	smblib_dbg(chg, PR_INTERRUPT, "IRQ: %s\n", irq_data->name);
+	schedule_delayed_work(&chg->charge_limit_work, 0);
 	power_supply_changed(chg->batt_psy);
 	return IRQ_HANDLED;
+}
+
+static void smblib_charge_limit_work(struct work_struct *work)
+{
+	struct smb_charger *chg = container_of(work, struct smb_charger,
+						charge_limit_work.work);
+	union power_supply_propval val;
+	union power_supply_propval usb_val;
+	int rc;
+	bool disable;
+
+	if (!chg->charge_limit)
+		return;
+
+	rc = smblib_get_prop_usb_present(chg, &usb_val);
+	if (rc < 0)
+		return;
+	if (!usb_val.intval) {
+		vote(chg->chg_disable_votable, CHARGE_LIMIT_VOTER, false, 0);
+		chg->charge_limit_active = false;
+		return;
+	}
+
+	rc = smblib_get_prop_batt_capacity(chg, &val);
+	if (rc < 0)
+		return;
+
+	disable = chg->charge_limit_active ?
+			val.intval > max(chg->charge_limit - 2, 0) :
+			val.intval >= chg->charge_limit;
+	if (disable != chg->charge_limit_active) {
+		vote(chg->chg_disable_votable, CHARGE_LIMIT_VOTER,
+			disable, 0);
+		chg->charge_limit_active = disable;
+	}
+}
+
+int smblib_get_prop_charge_limit(struct smb_charger *chg,
+				union power_supply_propval *val)
+{
+	val->intval = chg->charge_limit;
+	return 0;
+}
+
+int smblib_set_prop_charge_limit(struct smb_charger *chg,
+				const union power_supply_propval *val)
+{
+	if (val->intval < 0 || val->intval > 100)
+		return -EINVAL;
+
+	chg->charge_limit = val->intval;
+	if (!chg->charge_limit) {
+		vote(chg->chg_disable_votable, CHARGE_LIMIT_VOTER, false, 0);
+		chg->charge_limit_active = false;
+	} else {
+		schedule_delayed_work(&chg->charge_limit_work, 0);
+	}
+	return 0;
 }
 
 #define AICL_STEP_MV		200
@@ -12447,6 +12509,7 @@ int smblib_init(struct smb_charger *chg)
 	INIT_DELAYED_WORK(&chg->role_reversal_check,
 					smblib_typec_role_check_work);
 	INIT_DELAYED_WORK(&chg->reg_work, smblib_reg_work);
+	INIT_DELAYED_WORK(&chg->charge_limit_work, smblib_charge_limit_work);
 	INIT_DELAYED_WORK(&chg->thermal_setting_work, smblib_thermal_setting_work);
 #if (!defined CONFIG_FUEL_GAUGE_BQ27Z561) && (!defined CONFIG_DUAL_FUEL_GAUGE_BQ27Z561)
 	INIT_DELAYED_WORK(&chg->reduce_fcc_work, reduce_fcc_work);
@@ -12521,6 +12584,8 @@ int smblib_init(struct smb_charger *chg)
 	chg->cp_topo = -EINVAL;
 	chg->dr_mode = TYPEC_PORT_DRP;
 	chg->capacity = -EINVAL;
+	chg->charge_limit = 0;
+	chg->charge_limit_active = false;
 
 	switch (chg->mode) {
 	case PARALLEL_MASTER:
@@ -12644,6 +12709,7 @@ int smblib_deinit(struct smb_charger *chg)
 		cancel_delayed_work_sync(&chg->six_pin_batt_step_chg_work);
 		cancel_delayed_work_sync(&chg->pr_swap_detach_work);
 		cancel_delayed_work_sync(&chg->reg_work);
+		cancel_delayed_work_sync(&chg->charge_limit_work);
 #if (!defined CONFIG_FUEL_GAUGE_BQ27Z561) && (!defined CONFIG_DUAL_FUEL_GAUGE_BQ27Z561)
 		cancel_delayed_work_sync(&chg->reduce_fcc_work);
 #endif

@@ -1,6 +1,8 @@
 name: PocoF3 Build
 
 on:
+  push:
+    branches: [f2fs-fix-ksu]
   workflow_dispatch:
     inputs:
       ksu:
@@ -9,7 +11,7 @@ on:
         type: boolean
         default: true
       release:
-        description: 'Create GitHub Release'
+        description: 'Publish the direct flashable ZIP as a GitHub Release asset'
         required: false
         type: boolean
         default: false
@@ -23,14 +25,9 @@ jobs:
     steps:
       - name: Sync workspace (persist between builds)
         run: |
-          if [ -d "${{ github.workspace }}/build/.git" ]; then
-            cd ${{ github.workspace }}/build
-            git fetch --depth=1 origin ${{ github.ref_name }}
-            git reset --hard origin/${{ github.ref_name }}
-          else
-            sudo rm -rf ${{ github.workspace }}/build || true
-            git clone --depth=1 https://github.com/${{ github.repository }}.git -b ${{ github.ref_name }} ${{ github.workspace }}/build
-          fi
+          # Always clean clone — avoids stale build artifacts
+          sudo rm -rf ${{ github.workspace }}/build || true
+          git clone --depth=1 https://github.com/${{ github.repository }}.git -b ${{ github.ref_name }} ${{ github.workspace }}/build
 
       - name: Build Docker image
         working-directory: build
@@ -110,68 +107,39 @@ jobs:
           [ "$FAILED" -eq 1 ] && { echo "=== QA GATES FAILED ==="; exit 1; }
           echo "=== QA GATES PASSED ==="
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: |
-            build/out/arch/arm64/boot/Image
-            build/out/arch/arm64/boot/Image.gz-dtb
-            build/out/arch/arm64/boot/Image.gz
-            build/out/modules/
-          if-no-files-found: error
-
       - name: Package AnyKernel3 ZIP
+        id: package
+        working-directory: build
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          KSU_ENABLED: ${{ inputs.ksu }}
         run: |
-          cat > /tmp/package_kernel.sh << 'ENDSCRIPT'
-          #!/bin/bash
-          set -ex
-          git config --global --add safe.directory /workspace
-          KSU_SUFFIX="_ReSukiSU"
-          [ "${{ inputs.ksu }}" != "true" ] && KSU_SUFFIX="_vanilla"
-          rm -rf anykernel anykernel-modules
-          git clone https://github.com/AstideLabs/AnyKernel3 -b master --single-branch --depth=1 anykernel
-          # === A/B SLOT FIX ===
-          # === A/B SLOT FIX: SLOT_SELECT=active auto-detects correct slot ===
-          sed -i '1i\SLOT_SELECT=active' anykernel/anykernel.sh
-          # === END A/B SLOT FIX ===
-          mkdir -p anykernel/kernels/aosp/
-          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
-            cp out/arch/arm64/boot/Image.gz-dtb anykernel/kernels/aosp/Image
-          elif [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image anykernel/kernels/aosp/Image
+          rm -f rp-pocof3_*.zip
+          bash scripts/package-kernel.sh
+          mapfile -t ZIPS < <(find . -maxdepth 1 -type f -name 'rp-pocof3_*.zip' -print)
+          if [ "${#ZIPS[@]}" -ne 1 ]; then
+            echo "Expected exactly one flashable ZIP, found ${#ZIPS[@]}"
+            printf '%s\n' "${ZIPS[@]}"
+            exit 1
           fi
-          for dtb in out/arch/arm64/boot/dts/qcom/sm8250*.dtb out/arch/arm64/boot/dtb; do
-            [ -f "$dtb" ] && cp "$dtb" anykernel/kernels/aosp/dtb && break
-          done
-          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img anykernel/kernels/aosp/dtbo.img
-          if [ ! -f anykernel/kernels/aosp/dtb ] || [ ! -f anykernel/kernels/aosp/dtbo.img ]; then
-            sed -i "s|\[ -f \$AKHOME/kernels/\$os/Image \] && \[ -f \$AKHOME/kernels/\$os/dtb \] && \[ -f \$AKHOME/kernels/\$os/dtbo.img \]|[ -f \$AKHOME/kernels/\$os/Image ]|" anykernel/anykernel.sh
-            sed -i "/mv \$AKHOME\/kernels\/\$os\/dtb/d" anykernel/anykernel.sh
-            sed -i "/dtbo.img/d" anykernel/anykernel.sh
-          fi
-          [ -d "out/modules" ] && [ "$(ls -A out/modules 2>/dev/null)" ] && mkdir -p anykernel/anykernel-modules/ && cp out/modules/*.ko anykernel/anykernel-modules/ 2>/dev/null || true
-          # Include ZRAM resize script for KSU service.d installation
-          [ -f "zram-resize.sh" ] && cp zram-resize.sh anykernel/anykernel-modules/
-          [ -f "uclamp_tuning.sh" ] && cp uclamp_tuning.sh anykernel/anykernel-modules/
-          cd anykernel
-          ZIP_FILENAME="rp-pocof3${KSU_SUFFIX}_b${BUILD_NUMBER}.zip"
-          zip -r9 "$ZIP_FILENAME" ./* -x .git .gitignore out/ ./*.zip
-          mv "$ZIP_FILENAME" ../
-          ENDSCRIPT
-          docker run --rm \
-            -v ${{ github.workspace }}/build:/workspace \
-            -v /tmp/package_kernel.sh:/tmp/package_kernel.sh:ro \
-            -w /workspace \
-            -e BUILD_NUMBER=${{ github.run_number }} \
-            kernel-builder \
-            bash /tmp/package_kernel.sh
-
+          ZIP_FILE="${ZIPS[0]#./}"
+          unzip -t "$ZIP_FILE" >/dev/null
+          unzip -l "$ZIP_FILE" | grep -q 'anykernel.sh' || { echo "Missing anykernel.sh"; exit 1; }
+          unzip -l "$ZIP_FILE" | grep -q 'META-INF/com/google/android/update-binary' || { echo "Missing recovery installer"; exit 1; }
+          echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
+          echo "ZIP_FILE=${ZIP_FILE}" >> "$GITHUB_ENV"
+          {
+            echo "### Flashable package"
+            echo
+            echo "\`${ZIP_FILE}\` is the validated AnyKernel3 ZIP."
+            echo
+            echo "The Actions artifact is a GitHub wrapper archive by design. Set release=true to publish this ZIP as a direct GitHub Release asset."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload ZIP
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: anykernel3-zip
-          path: build/*.zip
+          name: flashable-anykernel3
+          path: build/${{ steps.package.outputs.zip_file }}
           if-no-files-found: error
 
       - name: Set release env
@@ -183,15 +151,13 @@ jobs:
           TAG_NAME="v${BUILD_DATE}-b${BUILD_NUMBER}"
           KSU_LABEL="ReSukiSU"
           [ "${{ inputs.ksu }}" != "true" ] && KSU_LABEL="Vanilla"
-          ZIP_FILE=$(ls *.zip 2>/dev/null | head -1)
           echo "TAG_NAME=${TAG_NAME}" >> "$GITHUB_ENV"
           echo "KSU_LABEL=${KSU_LABEL}" >> "$GITHUB_ENV"
           echo "BUILD_DATE=${BUILD_DATE}" >> "$GITHUB_ENV"
-          echo "ZIP_FILE=${ZIP_FILE}" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         if: inputs.release == true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: "RedAlpha PocoF3 ${{ env.KSU_LABEL }} - ${{ env.BUILD_DATE }}"
@@ -204,4 +170,4 @@ jobs:
             - **Variant:** ${{ env.KSU_LABEL }}
 
             Flash via TWRP.
-          files: build/${{ env.ZIP_FILE }}
+          files: build/${{ steps.package.outputs.zip_file }}

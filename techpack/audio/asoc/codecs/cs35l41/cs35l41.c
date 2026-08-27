@@ -43,7 +43,10 @@
 #include "wm_adsp.h"
 #include "cs35l41.h"
 #include <sound/cs35l41.h>
-#include "send_data_to_xlog.h"
+static DEFINE_MUTEX(cs35l41_reset_lock);
+static struct gpio_desc *cs35l41_shared_reset;
+static int cs35l41_reset_refcount;
+
 static const char * const cs35l41_supplies[] = {
 	"VA",
 	"VP",
@@ -796,8 +799,7 @@ static irqreturn_t cs35l41_irq(int irq, void *data)
 	unsigned int status[4];
 	unsigned int masks[4];
 	unsigned int i;
-	char reason[] = "DSP";
-	dev_info(cs35l41->dev, "step into cs35l41 irq handler\n");
+	dev_dbg(cs35l41->dev, "step into cs35l41 irq handler\n");
 
 	for (i = 0; i < ARRAY_SIZE(status); i++) {
 		regmap_read(cs35l41->regmap,
@@ -921,9 +923,9 @@ static irqreturn_t cs35l41_irq(int irq, void *data)
 		//Analog mute PA if DC is detected
 		//regmap_write(cs35l41->regmap, CS35L41_AMP_OUT_MUTE,
 		//	     1 << CS35L41_AMP_MUTE_SHIFT);
-		send_DC_data_to_xlog( reason);
 		dev_crit(cs35l41->dev, "DC current detected");
 	}
+
 
 	return IRQ_HANDLED;
 }
@@ -953,9 +955,6 @@ static int cs35l41_main_amp_event(struct snd_soc_dapm_widget *w,
 	enum cs35l41_cspl_mboxcmd mboxcmd = CSPL_MBOX_CMD_NONE;
 	int ret = 0;
 	enum cs35l41_cspl_mboxstate fw_status = CSPL_MBOX_STS_RUNNING;
-	int i;
-	bool pdn;
-	unsigned int val;
 	dev_info(cs35l41->dev, "%s: event = %d.\n",
 		__func__, event);
 	switch (event) {
@@ -1027,22 +1026,7 @@ static int cs35l41_main_amp_event(struct snd_soc_dapm_widget *w,
 		regmap_update_bits(cs35l41->regmap, CS35L41_PWR_CTRL1,
 				CS35L41_GLOBAL_EN_MASK, 0);
 
-		pdn = false;
-		for (i = 0; i < 100; i++) {
-			regmap_read(cs35l41->regmap, CS35L41_IRQ1_STATUS1,
-				    &val);
-			if (val & CS35L41_PDN_DONE_MASK) {
-				pdn = true;
-				break;
-			}
-			usleep_range(1000, 1010);
-		}
-
-		if (!pdn)
-			dev_warn(cs35l41->dev, "PDN failed\n");
-
-		regmap_write(cs35l41->regmap, CS35L41_IRQ1_STATUS1,
-			     CS35L41_PDN_DONE_MASK);
+		usleep_range(1000, 1100);
 
 		regmap_multi_reg_write_bypassed(cs35l41->regmap,
 					cs35l41_pdn_patch,
@@ -2343,25 +2327,37 @@ int cs35l41_probe(struct cs35l41_private *cs35l41,
 	}
 
 /* returning NULL can be an option if in stereo mode */
-	cs35l41->reset_gpio = devm_gpiod_get_optional(cs35l41->dev, "reset",
-							GPIOD_OUT_LOW);
-	if (IS_ERR(cs35l41->reset_gpio)) {
-		ret = PTR_ERR(cs35l41->reset_gpio);
-		cs35l41->reset_gpio = NULL;
-		if (ret == -EBUSY) {
-			dev_info(cs35l41->dev,
-				 "Reset line busy, assuming shared reset\n");
-		} else {
-			dev_err(cs35l41->dev,
-				"Failed to get reset GPIO: %d\n", ret);
-			goto err;
+	mutex_lock(&cs35l41_reset_lock);
+	if (cs35l41_reset_refcount == 0) {
+		cs35l41_shared_reset = gpiod_get_optional(cs35l41->dev,
+							  "reset",
+							  GPIOD_OUT_LOW);
+		if (IS_ERR(cs35l41_shared_reset)) {
+			ret = PTR_ERR(cs35l41_shared_reset);
+			cs35l41_shared_reset = NULL;
+			mutex_unlock(&cs35l41_reset_lock);
+			if (ret == -EBUSY) {
+				dev_info(cs35l41->dev,
+					 "Reset line busy, assuming shared reset\n");
+			} else {
+				dev_err(cs35l41->dev,
+					"Failed to get reset GPIO: %d\n", ret);
+				goto err;
+			}
+			goto reset_done;
 		}
 	}
+	cs35l41_reset_refcount++;
+	cs35l41->reset_gpio = cs35l41_shared_reset;
+	mutex_unlock(&cs35l41_reset_lock);
+
 	if (cs35l41->reset_gpio) {
 		/* satisfy minimum reset pulse width spec */
 		usleep_range(2000, 2100);
 		gpiod_set_value_cansleep(cs35l41->reset_gpio, 1);
 	}
+
+reset_done:
 
 	usleep_range(2000, 2100);
 
@@ -2500,6 +2496,26 @@ int cs35l41_probe(struct cs35l41_private *cs35l41,
 err:
 	regulator_bulk_disable(cs35l41->num_supplies, cs35l41->supplies);
 	return ret;
+}
+
+int cs35l41_remove(struct cs35l41_private *cs35l41)
+{
+	mutex_lock(&cs35l41_reset_lock);
+	cs35l41_reset_refcount--;
+	if (cs35l41_reset_refcount == 0) {
+		if (cs35l41_shared_reset) {
+			gpiod_set_value_cansleep(cs35l41_shared_reset, 0);
+			gpiod_put(cs35l41_shared_reset);
+			cs35l41_shared_reset = NULL;
+		}
+	}
+	mutex_unlock(&cs35l41_reset_lock);
+
+	regmap_write(cs35l41->regmap, CS35L41_IRQ1_MASK1, 0xFFFFFFFF);
+	wm_adsp2_remove(&cs35l41->dsp);
+	regulator_bulk_disable(cs35l41->num_supplies, cs35l41->supplies);
+	snd_soc_unregister_component(cs35l41->dev);
+	return 0;
 }
 
 MODULE_DESCRIPTION("ASoC CS35L41 driver");

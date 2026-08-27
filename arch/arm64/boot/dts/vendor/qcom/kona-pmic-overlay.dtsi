@@ -4,7 +4,7 @@
 #include "pm8150.dtsi"
 #include "pm8150b.dtsi"
 #include "pm8150l.dtsi"
-#include "pm8009.dtsi"
+/* pm8009 absent on alioth — remove to avoid SPMI probe errors */
 
 &spmi_bus {
 	#address-cells = <2>;

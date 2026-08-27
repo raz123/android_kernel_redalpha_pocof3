@@ -33,6 +33,9 @@ enum iio_endian {
 	IIO_LE,
 };
 
+
+/* Driver data-ready flag for poll wakeup */
+#define IIO_DATA_READY_BIT 2
 struct iio_chan_spec;
 struct iio_dev;
 

@@ -32,8 +32,14 @@
 #include <asm/bootinfo.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/workqueue.h>
+#include <linux/poll.h>
+#include <linux/iio/buffer_impl.h>
+#include <linux/kref.h>
+#include <linux/rcupdate.h>
 
 #define US_PROX_IIO_NAME		"distance"
+#define US_PROX_KEEPALIVE_MS		2000
 
 static struct us_prox_data *g_us_prox;
 
@@ -41,10 +47,15 @@ struct us_prox_data {
 	struct platform_device	*pdev;
 	/* common state */
 	struct mutex		mutex;
+	/* reference counting for safe concurrent access */
+	struct kref		refcount;
 	/* for proximity sensor */
 	struct iio_dev		*prox_idev;
-	bool			prox_enabled;
-	int				raw_data;
+	struct delayed_work	keepalive_work;
+	struct delayed_work	heal_work;
+	int			keepalive_active;
+	int			prox_enabled;
+	int			raw_data;
 };
 
 struct us_prox_el_data {
@@ -78,16 +89,55 @@ static const struct iio_chan_spec us_proximity_channels[] = {
 	IIO_CHAN_SOFT_TIMESTAMP(2)
 };
 
+static void us_prox_push_event(struct us_prox_data *data, int value)
+{
+	struct us_prox_el_data el_data;
+	struct timespec ts;
+
+	if (!data || !data->prox_idev)
+		return;
+
+	get_monotonic_boottime(&ts);
+	el_data.timestamp = timespec_to_ns(&ts);
+	el_data.data1 = value ? 5 : 0;
+	data->raw_data = el_data.data1;
+
+	iio_push_to_buffers(data->prox_idev, (unsigned char *)&el_data);
+	if (data->prox_idev->buffer)
+		wake_up_poll(&data->prox_idev->buffer->pollq, EPOLLIN);
+}
 static int us_buffer_postenable(struct iio_dev *indio_dev)
 {
-	int ret = 0;
-	return ret;
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+
+	if (!priv_data)
+		return -EINVAL;
+	data = *priv_data;
+	if (!data)
+		return -EINVAL;
+
+	data->keepalive_active = 1;
+	schedule_delayed_work(&data->keepalive_work,
+		msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+	return 0;
 }
 
 static int us_buffer_predisable(struct iio_dev *indio_dev)
 {
-	int ret = 0;
-	return ret;
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+
+	if (!priv_data)
+		return -EINVAL;
+	data = *priv_data;
+	if (!data)
+		return -EINVAL;
+
+	data->keepalive_active = 0;
+	cancel_delayed_work_sync(&data->keepalive_work);
+	cancel_delayed_work(&data->keepalive_work);
+	return 0;
 }
 
 static const struct iio_buffer_setup_ops us_buffer_setup_ops = {
@@ -101,51 +151,51 @@ static const struct iio_trigger_ops us_sensor_trigger_ops = {
 
 int us_setup_trigger_sensor(struct iio_dev *indio_dev)
 {
-	struct iio_trigger *trigger;
-	int ret;
-
-	trigger = iio_trigger_alloc("%s-dev%d", indio_dev->name, indio_dev->id);
-	if (!trigger)
-		return -ENOMEM;
-
-	trigger->dev.parent = indio_dev->dev.parent;
-	trigger->ops = &us_sensor_trigger_ops;
-	ret = iio_trigger_register(trigger);
-	if (ret < 0)
-		goto exit_free_trigger;
-
-	indio_dev->trig = trigger;
-
 	return 0;
+}
 
-exit_free_trigger:
-	iio_trigger_free(trigger);
-	return ret;
+static int us_proximity_teardown(struct us_prox_data *data);
+static void us_prox_data_release(struct kref *ref)
+{
+	struct us_prox_data *data = container_of(ref, struct us_prox_data,
+						refcount);
+	if (data->prox_idev)
+		us_proximity_teardown(data);
+	kfree(data);
 }
 
 int us_afe_callback(int data)
 {
-	int ret;
+	struct us_prox_data *prox;
 	struct us_prox_el_data el_data;
 	struct timespec ts;
+	int ret;
 
 	get_monotonic_boottime(&ts);
 	el_data.timestamp = timespec_to_ns(&ts);
-	pr_info("%s: data = %d\n", __func__, data);
+	el_data.data1 = (data != 0) ? 5 : 0;
 
-	if (!data)
-		el_data.data1 = 0;
-	else
-		el_data.data1 = 5;
+	rcu_read_lock();
+	prox = rcu_dereference(g_us_prox);
+	if (prox && !kref_get_unless_zero(&prox->refcount))
+		prox = NULL;
+	rcu_read_unlock();
 
-	if (g_us_prox) {
-		ret = iio_push_to_buffers(g_us_prox->prox_idev,
+	if (!prox)
+		return 0;
+
+
+	prox->raw_data = el_data.data1;
+	if (prox->prox_idev->buffer) {
+		ret = iio_push_to_buffers(prox->prox_idev,
 					 (unsigned char *)&el_data);
 		if (ret < 0)
 			pr_err("%s: failed to push us prox data to buffer, err=%d\n",
 				__func__, ret);
+		wake_up_poll(&prox->prox_idev->buffer->pollq, EPOLLIN);
 	}
 
+	kref_put(&prox->refcount, us_prox_data_release);
 	return 0;
 }
 EXPORT_SYMBOL(us_afe_callback);
@@ -183,10 +233,71 @@ static struct attribute_group us_prox_attribute_group = {
 	.attrs = us_prox_attributes,
 };
 
+static int us_prox_read_raw(struct iio_dev *indio_dev,
+			struct iio_chan_spec const *chan,
+			int *val, int *val2, long mask)
+{
+	struct us_prox_data **priv_data = iio_priv(indio_dev);
+	struct us_prox_data *data;
+	int ret = -EINVAL;
+
+	if (!priv_data)
+		return ret;
+
+	data = *priv_data;
+	if (!data)
+		return ret;
+
+	mutex_lock(&data->mutex);
+
+	switch (mask) {
+	case IIO_CHAN_INFO_RAW:
+		*val = data->raw_data;
+		ret = IIO_VAL_INT;
+		break;
+	default:
+		break;
+	}
+
+	mutex_unlock(&data->mutex);
+
+	return ret;
+}
+
 static const struct iio_info us_proximity_info = {
-	//.driver_module = THIS_MODULE,
+	.read_raw = us_prox_read_raw,
 	.attrs = &us_prox_attribute_group,
 };
+static void us_prox_keepalive_work(struct work_struct *work)
+{
+	struct us_prox_data *data = container_of(work, struct us_prox_data,
+					keepalive_work.work);
+
+	us_prox_push_event(data, 0);
+	if (data->keepalive_active)
+		schedule_delayed_work(&data->keepalive_work,
+			msecs_to_jiffies(US_PROX_KEEPALIVE_MS));
+}
+static void us_prox_heal_work(struct work_struct *work)
+{
+	struct us_prox_data *data = container_of(work, struct us_prox_data,
+					heal_work.work);
+	struct iio_dev *idev = data->prox_idev;
+
+	if (!idev || !idev->buffer)
+		goto resched;
+
+	/* Check if buffer is disabled without taking locks.
+	 * buffer_list empty = inactive. iio_update_buffers is a safe no-op
+	 * when buffer is active (verified in iio_verify_update).
+	 */
+	if (list_empty(&idev->buffer->buffer_list))
+		iio_update_buffers(idev, idev->buffer, NULL);
+
+resched:
+	schedule_delayed_work(&data->heal_work,
+		msecs_to_jiffies(10000));
+}
 
 static int us_proximity_iio_setup(struct us_prox_data *data)
 {
@@ -207,7 +318,7 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 	idev->dev.parent = &(data->pdev->dev);
 	idev->info = &us_proximity_info;
 	idev->name = US_PROX_IIO_NAME;
-	idev->modes = INDIO_DIRECT_MODE;
+	idev->modes = INDIO_DIRECT_MODE | INDIO_BUFFER_SOFTWARE;
 
 	priv_data = iio_priv(idev);
 	*priv_data = data;
@@ -226,11 +337,28 @@ static int us_proximity_iio_setup(struct us_prox_data *data)
 		pr_err("Proximity IIO register fail\n");
 		goto free_trigger_p;
 	}
-	return ret;
 
+	/* Auto-enable buffer so iio_push_to_buffers() works
+	 * even when userspace HAL never writes buffer/enable=1.
+	 * Without activation, buffer_list is empty and the
+	 * kfifo stays empty — poll() always returns 0.
+	 */
+	set_bit(0, idev->buffer->scan_mask);
+	idev->buffer->scan_timestamp = true;
+	ret = iio_update_buffers(idev, idev->buffer, NULL);
+	if (ret)
+		pr_err("Proximity buffer auto-enable failed: %d\n", ret);
+	else
+		pr_info("Proximity buffer auto-enabled\n");
+	schedule_delayed_work(&data->heal_work,
+		msecs_to_jiffies(10000));
+
+	return 0;
 free_trigger_p:
-	iio_trigger_unregister(idev->trig);
-	iio_trigger_free(idev->trig);
+	if (idev->trig) {
+		iio_trigger_unregister(idev->trig);
+		iio_trigger_free(idev->trig);
+	}
 free_buffer_p:
 	iio_triggered_buffer_cleanup(idev);
 free_iio_p:
@@ -242,8 +370,10 @@ free_iio_p:
 static int us_proximity_teardown(struct us_prox_data *data)
 {
 	iio_device_unregister(data->prox_idev);
-	iio_trigger_unregister(data->prox_idev->trig);
-	iio_trigger_free(data->prox_idev->trig);
+	if (data->prox_idev->trig) {
+		iio_trigger_unregister(data->prox_idev->trig);
+		iio_trigger_free(data->prox_idev->trig);
+	}
 	iio_triggered_buffer_cleanup(data->prox_idev);
 	iio_device_free(data->prox_idev);
 
@@ -263,15 +393,17 @@ static int us_prox_probe(struct platform_device *pdev)
 	us_prox->pdev = pdev;
 	dev_set_drvdata(&pdev->dev, us_prox);
 
-	g_us_prox = us_prox;
-
 	mutex_init(&us_prox->mutex);
+	kref_init(&us_prox->refcount);
+	INIT_DELAYED_WORK(&us_prox->keepalive_work, us_prox_keepalive_work);
+	INIT_DELAYED_WORK(&us_prox->heal_work, us_prox_heal_work);
 	ret = us_proximity_iio_setup(us_prox);
 	if (ret < 0) {
 		pr_err("%s: iio setup failed ret = %d\n", __func__, ret);
+		kref_put(&us_prox->refcount, us_prox_data_release);
 		return ret;
 	}
-
+	rcu_assign_pointer(g_us_prox, us_prox);
 	return ret;
 }
 
@@ -284,12 +416,15 @@ static int us_prox_remove(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (us_prox) {
-		us_proximity_teardown(us_prox);
-		kfree(us_prox);
+		rcu_assign_pointer(g_us_prox, NULL);
+		synchronize_rcu();
+		cancel_delayed_work_sync(&us_prox->heal_work);
+		cancel_delayed_work_sync(&us_prox->keepalive_work);
+		kref_put(&us_prox->refcount, us_prox_data_release);
 	}
-
 	return 0;
 }
+
 
 static const struct of_device_id dt_match[] = {
 	{ .compatible = "us_prox" },

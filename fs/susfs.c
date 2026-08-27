@@ -25,6 +25,9 @@
 #include "mount.h"
 
 extern bool susfs_is_current_ksu_domain(void);
+/* Workqueue for SUSFS deferred operations - used by patched schedule_work() */
+struct workqueue_struct *susfs_extra_works;
+EXPORT_SYMBOL_GPL(susfs_extra_works);
 
 #ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
 bool susfs_is_log_enabled __read_mostly = true;

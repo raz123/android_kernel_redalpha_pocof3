@@ -5885,10 +5885,15 @@ static int cam_isp_context_dump_active_request(void *data, unsigned long iova,
 
 static int cam_isp_context_debug_register(void)
 {
+	static bool registered;
+
+	if (registered)
+		return 0;
+
 	isp_ctx_debug.dentry = debugfs_create_dir("camera_isp_ctx",
 		NULL);
 
-	if (!isp_ctx_debug.dentry) {
+	if (IS_ERR_OR_NULL(isp_ctx_debug.dentry)) {
 		CAM_ERR(CAM_ISP, "failed to create dentry");
 		return -ENOMEM;
 	}
@@ -5901,6 +5906,7 @@ static int cam_isp_context_debug_register(void)
 		goto err;
 	}
 
+	registered = true;
 	return 0;
 
 err:
