@@ -133,26 +133,26 @@ static inline int lru_hist_from_seq(unsigned long seq)
 	return seq % NR_HIST_GENS;
 }
 
-static inline int lru_tier_from_refs(int refs)
+static inline int lru_tier_from_refs(int refs, bool workingset)
 {
 	VM_WARN_ON_ONCE(refs > BIT(LRU_REFS_WIDTH));
 
-	/* see the comment in page_lru_refs() */
-	return order_base_2(refs + 1);
+	/* see the comment on MAX_NR_TIERS */
+	return workingset ? MAX_NR_TIERS - 1 : order_base_2(refs);
 }
 
 static inline int page_lru_refs(struct page *page)
 {
 	unsigned long flags = READ_ONCE(page->flags);
-	bool workingset = flags & BIT(PG_workingset);
+
+	if (!(flags & BIT(PG_referenced)))
+		return 0;
 
 	/*
-	 * Return the number of accesses beyond PG_referenced, i.e., N-1 if the
-	 * total number of accesses is N>1, since N=0,1 both map to the first
-	 * tier. lru_tier_from_refs() will account for this off-by-one. Also see
-	 * the comment on MAX_NR_TIERS.
+	 * Return the total number of accesses including PG_referenced. Also see
+	 * the comment on LRU_REFS_FLAGS.
 	 */
-	return ((flags & LRU_REFS_MASK) >> LRU_REFS_PGOFF) + workingset;
+	return ((flags & LRU_REFS_MASK) >> LRU_REFS_PGOFF) + 1;
 }
 
 static inline int page_lru_gen(struct page *page)
@@ -218,6 +218,38 @@ static inline void lru_gen_update_size(struct lruvec *lruvec, struct page *page,
 	VM_WARN_ON_ONCE(lru_gen_is_active(lruvec, old_gen) && !lru_gen_is_active(lruvec, new_gen));
 }
 
+static inline unsigned long lru_gen_page_seq(struct lruvec *lruvec,
+						     struct page *page, bool reclaiming)
+{
+	int gen;
+	int type = page_is_file_cache(page);
+	struct lru_gen_struct *lrugen = &lruvec->lrugen;
+
+	/*
+	 * +-----------------------------------+-----------------------------------+
+	 * | Accessed through page tables and | Accessed through file descriptors |
+	 * | promoted by page_update_gen()   | and protected by page_inc_gen()  |
+	 * +-----------------------------------+-----------------------------------+
+	 * | PG_active (set while isolated)   |                                   |
+	 * +-----------------+-----------------+-----------------+-----------------+
+	 * | PG_workingset   | PG_referenced   | PG_workingset   | LRU_REFS_FLAGS  |
+	 * +-----------------------------------+-----------------------------------+
+	 * |<---------- MIN_NR_GENS ---------->|                                   |
+	 * |<---------------------------- MAX_NR_GENS ---------------------------->|
+	 */
+	if (PageActive(page))
+		gen = MIN_NR_GENS - PageWorkingset(page);
+	else if (reclaiming)
+		gen = MAX_NR_GENS;
+	else if ((type == LRU_GEN_ANON && !PageSwapCache(page)) ||
+		 (PageReclaim(page) && (PageDirty(page) || PageWriteback(page))))
+		gen = MIN_NR_GENS;
+	else
+		gen = MAX_NR_GENS - PageWorkingset(page);
+
+	return max(lrugen->max_seq - gen + 1, lrugen->min_seq[type]);
+}
+
 static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bool reclaiming)
 {
 	unsigned long seq;
@@ -231,22 +263,7 @@ static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bo
 
 	if (PageUnevictable(page) || !lrugen->enabled)
 		return false;
-	/*
-	 * There are three common cases for this page:
-	 * 1. If it's hot, e.g., freshly faulted in or previously hot and
-	 *    migrated, add it to the youngest generation.
-	 * 2. If it's cold but can't be evicted immediately, i.e., an anon page
-	 *    not in swapcache or a dirty page pending writeback, add it to the
-	 *    second oldest generation.
-	 * 3. Everything else (clean, cold) is added to the oldest generation.
-	 */
-	if (PageActive(page))
-		seq = lrugen->max_seq;
-	else if ((type == LRU_GEN_ANON && !PageSwapCache(page)) ||
-		 (PageReclaim(page) && (PageDirty(page) || PageWriteback(page))))
-		seq = lrugen->min_seq[type] + 1;
-	else
-		seq = lrugen->min_seq[type];
+	seq = lru_gen_page_seq(lruvec, page, reclaiming);
 
 	gen = lru_gen_from_seq(seq);
 	flags = (gen + 1UL) << LRU_GEN_PGOFF;

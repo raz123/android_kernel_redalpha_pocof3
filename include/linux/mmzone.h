@@ -289,9 +289,9 @@ struct zone_reclaim_stat {
  * Each generation is divided into multiple tiers. A page accessed N times
  * through file descriptors is in tier order_base_2(N). A page in the first tier
  * (N=0,1) is marked by PG_referenced unless it was faulted in through page
- * tables or read ahead. A page in any other tier (N>1) is marked by
- * PG_referenced and PG_workingset. This implies a minimum of two tiers is
- * supported without using additional bits in page->flags.
+ * tables or read ahead. A page in the last tier (MAX_NR_TIERS-1) is marked by
+ * PG_workingset. A page in any other tier (1<N<5) is marked by additional bits
+ * of LRU_REFS_WIDTH in page->flags.
  *
  * In contrast to moving across generations which requires the LRU lock, moving
  * across tiers only involves atomic operations on page->flags and therefore
@@ -315,6 +315,7 @@ struct page_vma_mapped_walk;
 
 #define LRU_GEN_MASK		((BIT(LRU_GEN_WIDTH) - 1) << LRU_GEN_PGOFF)
 #define LRU_REFS_MASK		((BIT(LRU_REFS_WIDTH) - 1) << LRU_REFS_PGOFF)
+#define LRU_REFS_FLAGS		(LRU_REFS_MASK | BIT(PG_referenced))
 
 #ifdef CONFIG_LRU_GEN
 
